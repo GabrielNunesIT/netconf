@@ -1,0 +1,805 @@
+package client_test
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"encoding/xml"
+	"errors"
+	"net"
+	"testing"
+	"time"
+
+	netconf "github.com/GabrielNunesIT/netconf/netconf"
+	"github.com/GabrielNunesIT/netconf/netconf/client"
+	"github.com/GabrielNunesIT/netconf/netconf/transport"
+	ncssh "github.com/GabrielNunesIT/netconf/netconf/transport/ssh"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	gossh "golang.org/x/crypto/ssh"
+)
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+// testCaps is a minimal base:1.0-only capability set sufficient for session
+// establishment in all tests in this package.
+var testCaps = netconf.NewCapabilitySet([]string{netconf.BaseCap10})
+
+// newTestPair establishes a NETCONF session over an in-process loopback pair
+// and wraps the client side in a Client. It returns the Client and the raw
+// server-side transport so that individual tests can read RPCs and write
+// replies by hand.
+//
+// The server-side session is run in a goroutine; any session error is
+// reported via t.Fatal on the calling goroutine through a channel.
+func newTestPair(t *testing.T) (*client.Client, transport.Transport) {
+	t.Helper()
+
+	clientT, serverT := transport.NewLoopback()
+	t.Cleanup(func() {
+		clientT.Close()
+		serverT.Close()
+	})
+
+	// Run ClientSession and ServerSession concurrently (the loopback is
+	// unbuffered; both peers must send hellos simultaneously).
+	type sessResult struct {
+		sess *netconf.Session
+		err  error
+	}
+	clientCh := make(chan sessResult, 1)
+	serverCh := make(chan sessResult, 1)
+
+	go func() {
+		s, err := netconf.ClientSession(clientT, testCaps)
+		clientCh <- sessResult{s, err}
+	}()
+	go func() {
+		s, err := netconf.ServerSession(serverT, testCaps, 1)
+		serverCh <- sessResult{s, err}
+	}()
+
+	clientRes := <-clientCh
+	serverRes := <-serverCh
+	require.NoError(t, clientRes.err, "ClientSession must succeed")
+	require.NoError(t, serverRes.err, "ServerSession must succeed")
+
+	// The server session object is not used directly in tests — tests interact
+	// with the server side via the raw serverT transport.  Return serverT so
+	// tests can read raw RPC bytes and write reply bytes without going through
+	// a Session abstraction.
+	_ = serverRes.sess
+
+	c := client.NewClient(clientRes.sess)
+	t.Cleanup(func() { c.Close() })
+
+	return c, serverT
+}
+
+// writeReply serialises a netconf.RPCReply and writes it as a single NETCONF
+// message on the given transport. Used by test server goroutines.
+func writeReply(t *testing.T, trp transport.Transport, reply *netconf.RPCReply) {
+	t.Helper()
+	data, err := xml.Marshal(reply)
+	require.NoError(t, err, "marshal RPCReply")
+	require.NoError(t, transport.WriteMsg(trp, data), "write reply to transport")
+}
+
+// okReply builds a simple <rpc-reply message-id="…"><ok/></rpc-reply>.
+func okReply(msgID string) *netconf.RPCReply {
+	return &netconf.RPCReply{
+		MessageID: msgID,
+		Ok:        &struct{}{},
+	}
+}
+
+// ── TestSession_SendRecv ──────────────────────────────────────────────────────
+
+// TestSession_SendRecv validates the new Send and Recv methods on Session via
+// a loopback pair, independently of the Client.
+func TestSession_SendRecv(t *testing.T) {
+	clientT, serverT := transport.NewLoopback()
+	defer clientT.Close()
+	defer serverT.Close()
+
+	srvSessCh := make(chan *netconf.Session, 1)
+	cliSessCh := make(chan *netconf.Session, 1)
+
+	go func() {
+		s, err := netconf.ServerSession(serverT, testCaps, 1)
+		require.NoError(t, err)
+		srvSessCh <- s
+	}()
+	go func() {
+		s, err := netconf.ClientSession(clientT, testCaps)
+		require.NoError(t, err)
+		cliSessCh <- s
+	}()
+
+	cliSess := <-cliSessCh
+	srvSess := <-srvSessCh
+
+	// Client sends; server receives.
+	msg := []byte("<hello>from-client</hello>")
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- cliSess.Send(msg)
+	}()
+
+	got, err := srvSess.Recv()
+	require.NoError(t, err, "Recv must succeed")
+	require.NoError(t, <-errCh, "Send must succeed")
+	assert.Equal(t, msg, got, "received bytes must match sent bytes")
+}
+
+// ── TestDo_SimpleRoundTrip ────────────────────────────────────────────────────
+
+// TestDo_SimpleRoundTrip proves the basic happy-path: Do sends an RPC with a
+// message-id, the server echoes back an RPCReply with the same message-id, and
+// Do returns the reply.
+func TestDo_SimpleRoundTrip(t *testing.T) {
+	c, serverT := newTestPair(t)
+
+	resultCh := make(chan error, 1)
+	go func() {
+		_, err := c.Do(context.Background(), netconf.CloseSession{})
+		resultCh <- err
+	}()
+
+	// Server: read the RPC, verify it has a message-id, write an ok reply.
+	raw, err := transport.ReadMsg(serverT)
+	require.NoError(t, err, "server must be able to read client RPC")
+
+	var rpc netconf.RPC
+	require.NoError(t, xml.Unmarshal(raw, &rpc), "server must parse RPC")
+	assert.NotEmpty(t, rpc.MessageID, "RPC must carry a message-id")
+
+	writeReply(t, serverT, okReply(rpc.MessageID))
+
+	require.NoError(t, <-resultCh, "Do must succeed")
+}
+
+// ── TestClient_ConcurrentRPCs ─────────────────────────────────────────────────
+
+// TestClient_ConcurrentRPCs proves that two goroutines can call Do
+// simultaneously and that out-of-order replies are matched correctly by
+// message-id. The server reads both RPCs and sends the second reply first.
+func TestClient_ConcurrentRPCs(t *testing.T) {
+	c, serverT := newTestPair(t)
+
+	type result struct {
+		reply *netconf.RPCReply
+		err   error
+	}
+
+	res1Ch := make(chan result, 1)
+	res2Ch := make(chan result, 1)
+
+	go func() {
+		reply, err := c.Do(context.Background(), netconf.CloseSession{})
+		res1Ch <- result{reply, err}
+	}()
+	go func() {
+		reply, err := c.Do(context.Background(), netconf.CloseSession{})
+		res2Ch <- result{reply, err}
+	}()
+
+	// Read both RPCs from the server side.
+	raw1, err := transport.ReadMsg(serverT)
+	require.NoError(t, err, "read first RPC")
+	raw2, err := transport.ReadMsg(serverT)
+	require.NoError(t, err, "read second RPC")
+
+	var rpc1, rpc2 netconf.RPC
+	require.NoError(t, xml.Unmarshal(raw1, &rpc1))
+	require.NoError(t, xml.Unmarshal(raw2, &rpc2))
+
+	// The two RPCs must have distinct message-ids (key correctness invariant).
+	assert.NotEqual(t, rpc1.MessageID, rpc2.MessageID,
+		"the two RPCs must have distinct message-ids")
+
+	// Intentionally reply in reverse order to exercise message-id matching.
+	writeReply(t, serverT, okReply(rpc2.MessageID))
+	writeReply(t, serverT, okReply(rpc1.MessageID))
+
+	r1 := <-res1Ch
+	r2 := <-res2Ch
+
+	require.NoError(t, r1.err, "caller 1 must succeed")
+	require.NoError(t, r2.err, "caller 2 must succeed")
+	require.NotNil(t, r1.reply, "caller 1 must get a reply")
+	require.NotNil(t, r2.reply, "caller 2 must get a reply")
+
+	// The set of message-ids received must equal the set of message-ids sent.
+	// We cannot predict which goroutine got which id, but each must get exactly
+	// one of the two ids in the round-trip.
+	sentIDs := map[string]bool{rpc1.MessageID: true, rpc2.MessageID: true}
+	assert.True(t, sentIDs[r1.reply.MessageID],
+		"caller 1 reply message-id %q must be one of the sent RPCs", r1.reply.MessageID)
+	assert.True(t, sentIDs[r2.reply.MessageID],
+		"caller 2 reply message-id %q must be one of the sent RPCs", r2.reply.MessageID)
+	assert.NotEqual(t, r1.reply.MessageID, r2.reply.MessageID,
+		"callers must receive distinct replies")
+}
+
+// ── TestClient_ContextCancel ──────────────────────────────────────────────────
+
+// TestClient_ContextCancel proves that cancelling the context before the
+// server replies causes Do to return context.Canceled. The server goroutine
+// is intentionally delayed and never sends a reply.
+func TestClient_ContextCancel(t *testing.T) {
+	c, serverT := newTestPair(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	resultCh := make(chan error, 1)
+	go func() {
+		_, err := c.Do(ctx, netconf.CloseSession{})
+		resultCh <- err
+	}()
+
+	// Wait for the server to see the RPC (so the client has definitely sent
+	// it and registered the pending channel), then cancel.
+	_, err := transport.ReadMsg(serverT)
+	require.NoError(t, err, "server must read the RPC before cancel")
+
+	cancel()
+
+	select {
+	case err := <-resultCh:
+		assert.ErrorIs(t, err, context.Canceled,
+			"Do must return context.Canceled after ctx is cancelled")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Do did not return after context cancellation")
+	}
+}
+
+// ── TestClient_TransportClose ─────────────────────────────────────────────────
+
+// TestClient_TransportClose proves that closing the server side of the
+// transport causes the dispatcher to exit and any pending Do call to receive
+// an error (the transport error propagated through the dispatcher).
+func TestClient_TransportClose(t *testing.T) {
+	c, serverT := newTestPair(t)
+
+	resultCh := make(chan error, 1)
+	go func() {
+		_, err := c.Do(context.Background(), netconf.CloseSession{})
+		resultCh <- err
+	}()
+
+	// Wait for the server to see the RPC, then close the server transport
+	// (which causes the client's read end to get an EOF or pipe-closed error).
+	_, err := transport.ReadMsg(serverT)
+	require.NoError(t, err, "server must receive the RPC before transport close")
+
+	require.NoError(t, serverT.Close(), "serverT.Close must succeed")
+
+	select {
+	case err := <-resultCh:
+		assert.Error(t, err, "Do must return an error when transport is closed")
+		// The dispatcher exit error should be available via Err().
+		assert.Error(t, c.Err(), "Err() must return the dispatcher exit error")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Do did not return after transport close")
+	}
+}
+
+// ── TestClient_Close ──────────────────────────────────────────────────────────
+
+// TestClient_Close proves that calling Close shuts the client down cleanly and
+// that subsequent Do calls return an error immediately.
+func TestClient_Close(t *testing.T) {
+	c, _ := newTestPair(t)
+
+	require.NoError(t, c.Close(), "Close must succeed")
+
+	// After Close, Do must return an error without hanging.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	_, err := c.Do(ctx, netconf.CloseSession{})
+	assert.Error(t, err, "Do must return an error after Close")
+	// The error should not be a context error — it should reflect closed state.
+	assert.False(t, errors.Is(err, context.Canceled),
+		"error must not be context.Canceled")
+	assert.False(t, errors.Is(err, context.DeadlineExceeded),
+		"error must not be context.DeadlineExceeded")
+}
+
+// ── TestDo_MessageIDMonotonicallyIncreases ────────────────────────────────────
+
+// TestDo_MessageIDMonotonicallyIncreases verifies that consecutive Do calls
+// each get a new, distinct, monotonically-increasing decimal message-id.
+func TestDo_MessageIDMonotonicallyIncreases(t *testing.T) {
+	c, serverT := newTestPair(t)
+
+	const n = 5
+	idCh := make(chan string, n)
+	errCh := make(chan error, n)
+
+	// Issue n sequential RPCs; each call blocks until the server replies.
+	go func() {
+		for i := 0; i < n; i++ {
+			raw, err := transport.ReadMsg(serverT)
+			if err != nil {
+				errCh <- err
+				return
+			}
+			var rpc netconf.RPC
+			if err := xml.Unmarshal(raw, &rpc); err != nil {
+				errCh <- err
+				return
+			}
+			idCh <- rpc.MessageID
+			data, _ := xml.Marshal(okReply(rpc.MessageID))
+			transport.WriteMsg(serverT, data) //nolint:errcheck
+		}
+		errCh <- nil
+	}()
+
+	ids := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		_, err := c.Do(context.Background(), netconf.CloseSession{})
+		require.NoError(t, err, "Do %d must succeed", i+1)
+		ids = append(ids, <-idCh)
+	}
+	require.NoError(t, <-errCh, "server goroutine must complete without error")
+
+	// All IDs must be distinct.
+	seen := make(map[string]struct{})
+	for _, id := range ids {
+		assert.NotEmpty(t, id, "message-id must not be empty")
+		_, dup := seen[id]
+		assert.False(t, dup, "message-id %q is duplicated", id)
+		seen[id] = struct{}{}
+	}
+}
+
+// ── TestClient_DispatcherHandlesMalformedReply ────────────────────────────────
+
+// TestClient_DispatcherHandlesMalformedReply verifies that a malformed reply
+// (non-XML bytes) does not crash the dispatcher and that a subsequent well-
+// formed reply is still delivered correctly.
+func TestClient_DispatcherHandlesMalformedReply(t *testing.T) {
+	c, serverT := newTestPair(t)
+
+	// Issue the real RPC.
+	resultCh := make(chan error, 1)
+	go func() {
+		_, err := c.Do(context.Background(), netconf.CloseSession{})
+		resultCh <- err
+	}()
+
+	// Server: read the RPC, send garbage first, then the real ok reply.
+	raw, err := transport.ReadMsg(serverT)
+	require.NoError(t, err)
+	var rpc netconf.RPC
+	require.NoError(t, xml.Unmarshal(raw, &rpc))
+
+	// Send garbage; dispatcher must skip it without panicking.
+	require.NoError(t, transport.WriteMsg(serverT, []byte("not-xml-at-all")))
+	// Now send the real reply.
+	writeReply(t, serverT, okReply(rpc.MessageID))
+
+	require.NoError(t, <-resultCh, "Do must succeed despite an intermediate malformed message")
+}
+
+// ── SSH loopback helpers ──────────────────────────────────────────────────────
+
+// generateTestSigner returns an ephemeral 2048-bit RSA signer for SSH tests.
+func generateTestSigner(t *testing.T) gossh.Signer {
+	t.Helper()
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err, "generate RSA key")
+	signer, err := gossh.NewSignerFromKey(priv)
+	require.NoError(t, err, "create SSH signer")
+	return signer
+}
+
+// testSSHConfigs returns a matched server + client SSH config pair.
+// The server accepts any password; the client sends "test/test".
+func testSSHConfigs(t *testing.T) (*gossh.ServerConfig, *gossh.ClientConfig) {
+	t.Helper()
+	signer := generateTestSigner(t)
+	serverCfg := &gossh.ServerConfig{
+		PasswordCallback: func(_ gossh.ConnMetadata, _ []byte) (*gossh.Permissions, error) {
+			return &gossh.Permissions{}, nil
+		},
+	}
+	serverCfg.AddHostKey(signer)
+	clientCfg := &gossh.ClientConfig{
+		User:            "test",
+		Auth:            []gossh.AuthMethod{gossh.Password("test")},
+		HostKeyCallback: gossh.InsecureIgnoreHostKey(),
+		Timeout:         5 * time.Second,
+	}
+	return serverCfg, clientCfg
+}
+
+// newSSHTestPair builds a full SSH loopback stack and returns a ready Client
+// (client side), the server-side *netconf.Session, and a cleanup func.
+//
+// Stack: net.Listen on random port → ncssh.NewListener → ncssh.Dial →
+// netconf.ServerSession / ClientSession → client.NewClient.
+//
+// Server session runs in a goroutine; the caller uses serverSess to hand-
+// craft replies (or simply discards it and lets echoServer drive the session).
+func newSSHTestPair(t *testing.T) (c *client.Client, serverSess *netconf.Session, cleanup func()) {
+	t.Helper()
+
+	serverCfg, clientCfg := testSSHConfigs(t)
+
+	nl, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err, "listen on loopback")
+
+	caps := netconf.NewCapabilitySet([]string{netconf.BaseCap10, netconf.BaseCap11})
+	listener := ncssh.NewListener(nl, serverCfg)
+
+	type srvResult struct {
+		sess *netconf.Session
+		trp  *ncssh.ServerTransport
+		err  error
+	}
+	srvCh := make(chan srvResult, 1)
+	go func() {
+		trp, err := listener.Accept()
+		if err != nil {
+			srvCh <- srvResult{err: err}
+			return
+		}
+		sess, err := netconf.ServerSession(trp, caps, 1)
+		srvCh <- srvResult{sess: sess, trp: trp, err: err}
+	}()
+
+	addr := nl.Addr().String()
+	clientTrp, err := ncssh.Dial(addr, clientCfg)
+	require.NoError(t, err, "Dial SSH")
+
+	clientSess, err := netconf.ClientSession(clientTrp, caps)
+	require.NoError(t, err, "ClientSession")
+
+	sr := <-srvCh
+	require.NoError(t, sr.err, "ServerSession")
+
+	c = client.NewClient(clientSess)
+
+	cleanup = func() {
+		c.Close()
+		sr.trp.Close()
+		listener.Close()
+	}
+	return c, sr.sess, cleanup
+}
+
+// ── Echo-server helpers ───────────────────────────────────────────────────────
+
+// dataBody is the <data><config/></data> body returned by the echo server for
+// get / get-config operations.
+const dataBody = `<data xmlns="urn:ietf:params:xml:ns:netconf:base:1.0"><config/></data>`
+
+// echoServer runs an echo server on serverT: it reads RPC messages, inspects
+// the operation element name, and sends either a <data> reply (for get /
+// get-config) or an <ok/> reply (for everything else).  It exits when
+// serverT.Close() causes ReadMsg to fail.
+func echoServer(t *testing.T, serverT transport.Transport) {
+	t.Helper()
+	for {
+		raw, err := transport.ReadMsg(serverT)
+		if err != nil {
+			return // transport closed — normal exit
+		}
+		var rpc netconf.RPC
+		if err := xml.Unmarshal(raw, &rpc); err != nil {
+			t.Logf("echoServer: unmarshal RPC: %v", err)
+			continue
+		}
+
+		// Determine which operation was sent by peeking at the first XML
+		// element name inside the RPC body.
+		opName := firstElementName(rpc.Body)
+
+		var reply *netconf.RPCReply
+		switch opName {
+		case "get", "get-config":
+			reply = &netconf.RPCReply{
+				MessageID: rpc.MessageID,
+				Body:      []byte(dataBody),
+			}
+		default:
+			reply = &netconf.RPCReply{
+				MessageID: rpc.MessageID,
+				Ok:        &struct{}{},
+			}
+		}
+
+		data, err := xml.Marshal(reply)
+		if err != nil {
+			t.Logf("echoServer: marshal reply: %v", err)
+			continue
+		}
+		if err := transport.WriteMsg(serverT, data); err != nil {
+			return
+		}
+	}
+}
+
+// echoServerWithError runs an echo server that always replies with a single
+// <rpc-error> regardless of the operation.  Used by TestClient_RPCError.
+func echoServerWithError(t *testing.T, serverT transport.Transport) {
+	t.Helper()
+	raw, err := transport.ReadMsg(serverT)
+	if err != nil {
+		t.Logf("echoServerWithError: ReadMsg: %v", err)
+		return
+	}
+	var rpc netconf.RPC
+	if err := xml.Unmarshal(raw, &rpc); err != nil {
+		t.Logf("echoServerWithError: unmarshal: %v", err)
+		return
+	}
+	errBody := `<rpc-error xmlns="urn:ietf:params:xml:ns:netconf:base:1.0">` +
+		`<error-type>application</error-type>` +
+		`<error-tag>invalid-value</error-tag>` +
+		`<error-severity>error</error-severity>` +
+		`<error-message>test error message</error-message>` +
+		`</rpc-error>`
+	reply := &netconf.RPCReply{
+		MessageID: rpc.MessageID,
+		Body:      []byte(errBody),
+	}
+	data, err := xml.Marshal(reply)
+	if err != nil {
+		t.Logf("echoServerWithError: marshal: %v", err)
+		return
+	}
+	_ = transport.WriteMsg(serverT, data)
+}
+
+// firstElementName decodes the local name of the first XML start element in b.
+// Returns "" if b is empty or contains no start element.
+func firstElementName(b []byte) string {
+	d := xml.NewDecoder(bytesReaderNew(b))
+	for {
+		tok, err := d.Token()
+		if err != nil {
+			return ""
+		}
+		if se, ok := tok.(xml.StartElement); ok {
+			return se.Name.Local
+		}
+	}
+}
+
+// bytesReader is a minimal io.Reader over a byte slice, avoiding an import of
+// the bytes package just for this one use.
+type bytesReader struct{ b []byte }
+
+func (r *bytesReader) Read(p []byte) (int, error) {
+	if len(r.b) == 0 {
+		return 0, errors.New("EOF")
+	}
+	n := copy(p, r.b)
+	r.b = r.b[n:]
+	return n, nil
+}
+
+func bytesReaderNew(b []byte) *bytesReader { return &bytesReader{b: b} }
+
+// ── Typed method tests ────────────────────────────────────────────────────────
+
+// TestClient_GetConfig exercises GetConfig end-to-end through the echo server.
+func TestClient_GetConfig(t *testing.T) {
+	c, serverT := newTestPair(t)
+	go echoServer(t, serverT)
+
+	running := netconf.Datastore{Running: &struct{}{}}
+	dr, err := c.GetConfig(context.Background(), running, nil)
+	require.NoError(t, err, "GetConfig must succeed")
+	require.NotNil(t, dr, "DataReply must not be nil")
+}
+
+// TestClient_Get exercises Get end-to-end through the echo server.
+func TestClient_Get(t *testing.T) {
+	c, serverT := newTestPair(t)
+	go echoServer(t, serverT)
+
+	filter := &netconf.Filter{
+		Type:    "subtree",
+		Content: []byte(`<interfaces/>`),
+	}
+	dr, err := c.Get(context.Background(), filter)
+	require.NoError(t, err, "Get must succeed")
+	require.NotNil(t, dr, "DataReply must not be nil")
+}
+
+// TestClient_EditConfig exercises EditConfig through the echo server.
+func TestClient_EditConfig(t *testing.T) {
+	c, serverT := newTestPair(t)
+	go echoServer(t, serverT)
+
+	cfg := netconf.EditConfig{
+		Target: netconf.Datastore{Running: &struct{}{}},
+		Config: []byte(`<config/>`),
+	}
+	require.NoError(t, c.EditConfig(context.Background(), cfg))
+}
+
+// TestClient_Lock_Unlock exercises Lock then Unlock through the echo server.
+func TestClient_Lock_Unlock(t *testing.T) {
+	c, serverT := newTestPair(t)
+	go echoServer(t, serverT)
+
+	target := netconf.Datastore{Running: &struct{}{}}
+	require.NoError(t, c.Lock(context.Background(), target), "Lock must succeed")
+	require.NoError(t, c.Unlock(context.Background(), target), "Unlock must succeed")
+}
+
+// TestClient_CloseSession exercises CloseSession through the echo server.
+func TestClient_CloseSession(t *testing.T) {
+	c, serverT := newTestPair(t)
+	go echoServer(t, serverT)
+	require.NoError(t, c.CloseSession(context.Background()))
+}
+
+// TestClient_KillSession exercises KillSession through the echo server.
+func TestClient_KillSession(t *testing.T) {
+	c, serverT := newTestPair(t)
+	go echoServer(t, serverT)
+	require.NoError(t, c.KillSession(context.Background(), 42))
+}
+
+// TestClient_Commit exercises Commit(nil) through the echo server.
+func TestClient_Commit(t *testing.T) {
+	c, serverT := newTestPair(t)
+	go echoServer(t, serverT)
+	require.NoError(t, c.Commit(context.Background(), nil))
+}
+
+// TestClient_DiscardChanges exercises DiscardChanges through the echo server.
+func TestClient_DiscardChanges(t *testing.T) {
+	c, serverT := newTestPair(t)
+	go echoServer(t, serverT)
+	require.NoError(t, c.DiscardChanges(context.Background()))
+}
+
+// TestClient_CancelCommit exercises CancelCommit through the echo server.
+func TestClient_CancelCommit(t *testing.T) {
+	c, serverT := newTestPair(t)
+	go echoServer(t, serverT)
+	require.NoError(t, c.CancelCommit(context.Background(), ""))
+}
+
+// TestClient_Validate exercises Validate through the echo server.
+func TestClient_Validate(t *testing.T) {
+	c, serverT := newTestPair(t)
+	go echoServer(t, serverT)
+	require.NoError(t, c.Validate(context.Background(), netconf.Datastore{Running: &struct{}{}}))
+}
+
+// TestClient_CopyConfig exercises CopyConfig through the echo server.
+func TestClient_CopyConfig(t *testing.T) {
+	c, serverT := newTestPair(t)
+	go echoServer(t, serverT)
+	cfg := netconf.CopyConfig{
+		Target: netconf.Datastore{Running: &struct{}{}},
+		Source: netconf.Datastore{Candidate: &struct{}{}},
+	}
+	require.NoError(t, c.CopyConfig(context.Background(), cfg))
+}
+
+// TestClient_DeleteConfig exercises DeleteConfig through the echo server.
+func TestClient_DeleteConfig(t *testing.T) {
+	c, serverT := newTestPair(t)
+	go echoServer(t, serverT)
+	cfg := netconf.DeleteConfig{Target: netconf.Datastore{Startup: &struct{}{}}}
+	require.NoError(t, c.DeleteConfig(context.Background(), cfg))
+}
+
+// TestClient_RPCError verifies that a server-side <rpc-error> propagates
+// through the typed method layer as a netconf.RPCError (via errors.As).
+func TestClient_RPCError(t *testing.T) {
+	c, serverT := newTestPair(t)
+	go echoServerWithError(t, serverT)
+
+	running := netconf.Datastore{Running: &struct{}{}}
+	_, err := c.GetConfig(context.Background(), running, nil)
+	require.Error(t, err, "GetConfig must return an error when server replies with rpc-error")
+
+	var rpcErr netconf.RPCError
+	require.True(t, errors.As(err, &rpcErr),
+		"error must be (or wrap) a netconf.RPCError; got: %v", err)
+	assert.Equal(t, "application", rpcErr.Type)
+	assert.Equal(t, "invalid-value", rpcErr.Tag)
+	assert.Equal(t, "error", rpcErr.Severity)
+	assert.Equal(t, "test error message", rpcErr.Message)
+}
+
+// TestClient_SSHLoopback is a full end-to-end integration test:
+//
+//	TCP loopback → SSH handshake → NETCONF hello exchange →
+//	GetConfig typed method → DataReply → CloseSession → Close
+//
+// This proves R004 (all 13 typed operations over a real SSH transport) using
+// the loopback echo server.
+func TestClient_SSHLoopback(t *testing.T) {
+	// Build an SSH loopback stack with manual control over the server side.
+	serverCfg, clientCfg := testSSHConfigs(t)
+	nl, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	caps := netconf.NewCapabilitySet([]string{netconf.BaseCap10, netconf.BaseCap11})
+	listener := ncssh.NewListener(nl, serverCfg)
+	defer listener.Close()
+
+	type srvRes struct {
+		sess *netconf.Session
+		err  error
+	}
+	srvCh := make(chan srvRes, 1)
+	go func() {
+		trp, err := listener.Accept()
+		if err != nil {
+			srvCh <- srvRes{err: err}
+			return
+		}
+		sess, err := netconf.ServerSession(trp, caps, 99)
+		srvCh <- srvRes{sess: sess, err: err}
+	}()
+
+	addr := nl.Addr().String()
+	clientTrp, err := ncssh.Dial(addr, clientCfg)
+	require.NoError(t, err)
+	clientSess, err := netconf.ClientSession(clientTrp, caps)
+	require.NoError(t, err)
+
+	sr := <-srvCh
+	require.NoError(t, sr.err)
+
+	cl := client.NewClient(clientSess)
+	defer cl.Close()
+
+	// Drive the server session: read RPCs, write data or ok replies.
+	go func() {
+		for {
+			raw, err := sr.sess.Recv()
+			if err != nil {
+				return
+			}
+			var rpc netconf.RPC
+			if err := xml.Unmarshal(raw, &rpc); err != nil {
+				continue
+			}
+			opName := firstElementName(rpc.Body)
+			var reply *netconf.RPCReply
+			switch opName {
+			case "get", "get-config":
+				reply = &netconf.RPCReply{
+					MessageID: rpc.MessageID,
+					Body:      []byte(dataBody),
+				}
+			default:
+				reply = &netconf.RPCReply{
+					MessageID: rpc.MessageID,
+					Ok:        &struct{}{},
+				}
+			}
+			data, _ := xml.Marshal(reply)
+			if err := sr.sess.Send(data); err != nil {
+				return
+			}
+		}
+	}()
+
+	// Verify R004: GetConfig over real SSH.
+	dr, err := cl.GetConfig(context.Background(),
+		netconf.Datastore{Running: &struct{}{}}, nil)
+	require.NoError(t, err, "GetConfig over SSH must succeed")
+	require.NotNil(t, dr, "DataReply must not be nil")
+
+	// Verify the session-id assigned by the server propagated correctly.
+	assert.Equal(t, uint32(99), clientSess.SessionID(), "session-id must be 99")
+
+	// Clean teardown.
+	require.NoError(t, cl.CloseSession(context.Background()))
+	require.NoError(t, cl.Close())
+}

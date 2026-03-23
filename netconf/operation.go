@@ -1,0 +1,187 @@
+// Package netconf implements the NETCONF protocol (RFC 6241).
+//
+// This file defines the 13 base protocol operation request types described in
+// RFC 6241 §7, plus the shared Datastore, Filter, and DataReply types used
+// across multiple operations.
+//
+// Every operation struct carries the NETCONF base namespace in its XMLName tag
+// (lesson L001: namespace is set statically in the struct tag, never at runtime).
+// This ensures xml.Marshal always emits xmlns="urn:ietf:params:xml:ns:netconf:base:1.0"
+// on the operation element.
+package netconf
+
+import "encoding/xml"
+
+// ── Shared types ──────────────────────────────────────────────────────────────
+
+// Datastore represents a NETCONF configuration datastore reference.
+// It is used as the Source or Target in operations such as GetConfig,
+// EditConfig, CopyConfig, DeleteConfig, Lock, Unlock, and Validate.
+//
+// Exactly one field should be non-nil / non-empty for a valid datastore selector.
+// Each field encodes as a child element within the enclosing <source> or <target>:
+//   - Running:   <running/>
+//   - Candidate: <candidate/>
+//   - Startup:   <startup/>
+//   - URL:       <url>https://…</url>
+//
+// Using *struct{} for the boolean datastores gives omitempty semantics with
+// child-element encoding. A non-nil pointer marshals as an empty element.
+type Datastore struct {
+	Running   *struct{} `xml:"running,omitempty"`
+	Candidate *struct{} `xml:"candidate,omitempty"`
+	Startup   *struct{} `xml:"startup,omitempty"`
+	URL       string    `xml:"url,omitempty"`
+}
+
+// Filter represents a NETCONF filter element used in <get> and <get-config>.
+// RFC 6241 §6 defines two filter types:
+//
+//   - Subtree (type="subtree"): Content holds the raw inner XML of the
+//     filter criteria. Use the innerxml tag so arbitrary filter subtrees
+//     are preserved verbatim without requiring a schema.
+//
+//   - XPath (type="xpath"): Select holds the XPath expression. Requires
+//     the :xpath capability (CapabilityXPath) to be advertised by the device.
+//
+// The Type attribute discriminates between the two modes.
+type Filter struct {
+	Type    string `xml:"type,attr,omitempty"`
+	Select  string `xml:"select,attr,omitempty"`
+	Content []byte `xml:",innerxml"`
+}
+
+// DataReply wraps the <data> element returned in the body of a get or
+// get-config response. Unmarshal RPCReply.Body into a DataReply to access
+// the raw configuration content without writing a schema.
+//
+// Example:
+//
+//	var dr netconf.DataReply
+//	if err := xml.Unmarshal(reply.Body, &dr); err != nil { … }
+//	// dr.Content holds the raw inner XML of <data>
+type DataReply struct {
+	XMLName xml.Name `xml:"data"`
+	Content []byte   `xml:",innerxml"`
+}
+
+// ── Read operations ───────────────────────────────────────────────────────────
+
+// Get retrieves running configuration and state data (RFC 6241 §7.7).
+// Filter is optional; when nil all data is returned.
+type Get struct {
+	XMLName xml.Name `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 get"`
+	Filter  *Filter  `xml:"filter,omitempty"`
+}
+
+// GetConfig retrieves all or part of a specified configuration datastore
+// (RFC 6241 §7.1). Source identifies the datastore; Filter is optional.
+type GetConfig struct {
+	XMLName xml.Name `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 get-config"`
+	Source  Datastore `xml:"source"`
+	Filter  *Filter  `xml:"filter,omitempty"`
+}
+
+// ── Write operations ──────────────────────────────────────────────────────────
+
+// EditConfig loads part or all of a specified configuration into the target
+// datastore (RFC 6241 §7.2).
+//
+// DefaultOperation, TestOption, and ErrorOption are optional string fields;
+// when non-empty they encode as child elements. Config holds the raw inner XML
+// of the <config> element (arbitrary configuration content).
+type EditConfig struct {
+	XMLName          xml.Name  `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 edit-config"`
+	Target           Datastore `xml:"target"`
+	DefaultOperation string    `xml:"default-operation,omitempty"`
+	TestOption       string    `xml:"test-option,omitempty"`
+	ErrorOption      string    `xml:"error-option,omitempty"`
+	Config           []byte    `xml:",innerxml"`
+}
+
+// CopyConfig creates or replaces an entire configuration datastore with the
+// contents of another (RFC 6241 §7.3).
+type CopyConfig struct {
+	XMLName xml.Name  `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 copy-config"`
+	Target  Datastore `xml:"target"`
+	Source  Datastore `xml:"source"`
+}
+
+// DeleteConfig deletes a configuration datastore (RFC 6241 §7.4).
+// The running datastore cannot be deleted.
+type DeleteConfig struct {
+	XMLName xml.Name  `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 delete-config"`
+	Target  Datastore `xml:"target"`
+}
+
+// ── Lock operations ───────────────────────────────────────────────────────────
+
+// Lock locks the entire configuration datastore for the current session
+// (RFC 6241 §7.5). Target identifies the datastore to lock.
+type Lock struct {
+	XMLName xml.Name  `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 lock"`
+	Target  Datastore `xml:"target"`
+}
+
+// Unlock releases the lock held on a configuration datastore by this session
+// (RFC 6241 §7.6). Target identifies the datastore to unlock.
+type Unlock struct {
+	XMLName xml.Name  `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 unlock"`
+	Target  Datastore `xml:"target"`
+}
+
+// ── Session operations ────────────────────────────────────────────────────────
+
+// CloseSession requests a graceful termination of the current NETCONF session
+// (RFC 6241 §7.8). It carries no body fields.
+type CloseSession struct {
+	XMLName xml.Name `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 close-session"`
+}
+
+// KillSession forces the termination of another NETCONF session
+// (RFC 6241 §7.9). SessionID identifies the session to terminate.
+type KillSession struct {
+	XMLName   xml.Name `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 kill-session"`
+	SessionID uint32   `xml:"session-id"`
+}
+
+// ── Capability-gated operations ───────────────────────────────────────────────
+
+// Validate validates the contents of a configuration datastore
+// (RFC 6241 §8.6). Requires CapabilityValidate.
+// Source identifies the datastore (or candidate) to validate.
+type Validate struct {
+	XMLName xml.Name  `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 validate"`
+	Source  Datastore `xml:"source"`
+}
+
+// Commit commits the candidate configuration as the device's new running
+// configuration (RFC 6241 §8.3). Requires CapabilityCandidate.
+//
+// Optional confirmed-commit fields (RFC 6241 §8.4, requires CapabilityConfirmedCommit):
+//   - Confirmed:      when non-nil, initiates a confirmed commit
+//   - ConfirmTimeout: timeout in seconds (default 600 per RFC)
+//   - Persist:        token to identify a persistent confirmed commit
+//   - PersistID:      confirms a prior persistent confirmed commit
+type Commit struct {
+	XMLName        xml.Name  `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 commit"`
+	Confirmed      *struct{} `xml:"confirmed,omitempty"`
+	ConfirmTimeout uint32    `xml:"confirm-timeout,omitempty"`
+	Persist        string    `xml:"persist,omitempty"`
+	PersistID      string    `xml:"persist-id,omitempty"`
+}
+
+// DiscardChanges reverts the candidate configuration to the current running
+// configuration (RFC 6241 §8.3.4). Requires CapabilityCandidate.
+// It carries no body fields.
+type DiscardChanges struct {
+	XMLName xml.Name `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 discard-changes"`
+}
+
+// CancelCommit cancels an ongoing confirmed commit (RFC 6241 §8.4.9).
+// Requires CapabilityConfirmedCommit.
+// PersistID, when non-empty, identifies the persistent confirmed commit to cancel.
+type CancelCommit struct {
+	XMLName   xml.Name `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 cancel-commit"`
+	PersistID string   `xml:"persist-id,omitempty"`
+}

@@ -1,0 +1,608 @@
+package netconf_test
+
+import (
+	"encoding/xml"
+	"strings"
+	"testing"
+
+	"github.com/GabrielNunesIT/netconf/netconf"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// ── Shared helpers ────────────────────────────────────────────────────────────
+
+// mustMarshal marshals v to XML and fails the test on error.
+func mustMarshal(t *testing.T, v any) string {
+	t.Helper()
+	data, err := xml.Marshal(v)
+	require.NoError(t, err, "xml.Marshal must not fail")
+	return string(data)
+}
+
+// assertNSPresent checks that the given XML string carries the NETCONF base namespace.
+func assertNSPresent(t *testing.T, xmlStr, element string) {
+	t.Helper()
+	assert.Contains(t, xmlStr, `xmlns="urn:ietf:params:xml:ns:netconf:base:1.0"`,
+		"%s must carry NETCONF base namespace", element)
+}
+
+// ── Datastore encoding tests ──────────────────────────────────────────────────
+
+// TestDatastore_RunningEncoding verifies that Datastore{Running: &struct{}{}}
+// marshals the running datastore as a child element, not an attribute.
+func TestDatastore_RunningEncoding(t *testing.T) {
+	// Wrap in a parent element so xml.Marshal is happy with the struct tag context.
+	type wrapper struct {
+		XMLName xml.Name        `xml:"source"`
+		DS      netconf.Datastore `xml:",omitempty"`
+	}
+	w := wrapper{DS: netconf.Datastore{Running: &struct{}{}}}
+	data, err := xml.Marshal(w)
+	require.NoError(t, err)
+	xmlStr := string(data)
+
+	// Must encode as child element, not attribute.
+	assert.Contains(t, xmlStr, "<running>", "running must be a child element")
+	assert.NotContains(t, xmlStr, `running="`, "running must not be an attribute")
+	assert.NotContains(t, xmlStr, "<candidate>", "candidate must be absent")
+	assert.NotContains(t, xmlStr, "<startup>", "startup must be absent")
+}
+
+// TestDatastore_CandidateEncoding mirrors TestDatastore_RunningEncoding for <candidate/>.
+func TestDatastore_CandidateEncoding(t *testing.T) {
+	type wrapper struct {
+		XMLName xml.Name          `xml:"target"`
+		DS      netconf.Datastore `xml:",omitempty"`
+	}
+	w := wrapper{DS: netconf.Datastore{Candidate: &struct{}{}}}
+	data, err := xml.Marshal(w)
+	require.NoError(t, err)
+	xmlStr := string(data)
+
+	assert.Contains(t, xmlStr, "<candidate>", "candidate must be a child element")
+	assert.NotContains(t, xmlStr, "<running>", "running must be absent")
+	assert.NotContains(t, xmlStr, "<startup>", "startup must be absent")
+}
+
+// TestDatastore_StartupEncoding mirrors for <startup/>.
+func TestDatastore_StartupEncoding(t *testing.T) {
+	type wrapper struct {
+		XMLName xml.Name          `xml:"source"`
+		DS      netconf.Datastore `xml:",omitempty"`
+	}
+	w := wrapper{DS: netconf.Datastore{Startup: &struct{}{}}}
+	data, err := xml.Marshal(w)
+	require.NoError(t, err)
+	xmlStr := string(data)
+
+	assert.Contains(t, xmlStr, "<startup>", "startup must be a child element")
+	assert.NotContains(t, xmlStr, "<running>", "running must be absent")
+}
+
+// TestDatastore_URLEncoding verifies that a URL datastore encodes as <url>.
+func TestDatastore_URLEncoding(t *testing.T) {
+	type wrapper struct {
+		XMLName xml.Name          `xml:"source"`
+		DS      netconf.Datastore `xml:",omitempty"`
+	}
+	w := wrapper{DS: netconf.Datastore{URL: "https://example.com/cfg.xml"}}
+	data, err := xml.Marshal(w)
+	require.NoError(t, err)
+	xmlStr := string(data)
+
+	assert.Contains(t, xmlStr, "<url>https://example.com/cfg.xml</url>",
+		"URL must encode as <url> child element")
+	assert.NotContains(t, xmlStr, "<running>")
+	assert.NotContains(t, xmlStr, "<candidate>")
+}
+
+// ── Filter type tests ─────────────────────────────────────────────────────────
+
+// TestFilter_SubtreeRoundTrip verifies a subtree filter with arbitrary XML content
+// round-trips through marshal/unmarshal with content preserved.
+func TestFilter_SubtreeRoundTrip(t *testing.T) {
+	type wrapper struct {
+		XMLName xml.Name      `xml:"get"`
+		F       netconf.Filter `xml:"filter"`
+	}
+	subtreeContent := []byte(`<interfaces><interface><name>eth0</name></interface></interfaces>`)
+	orig := wrapper{F: netconf.Filter{Type: "subtree", Content: subtreeContent}}
+
+	data, err := xml.Marshal(orig)
+	require.NoError(t, err)
+	xmlStr := string(data)
+
+	// Type must appear as attribute.
+	assert.Contains(t, xmlStr, `type="subtree"`, "subtree type must be an attribute")
+	assert.Contains(t, xmlStr, "interfaces", "subtree content must be preserved")
+
+	var got wrapper
+	require.NoError(t, xml.Unmarshal(data, &got))
+	assert.Equal(t, "subtree", got.F.Type, "Type must round-trip")
+	assert.Contains(t, string(got.F.Content), "interfaces", "Content must round-trip")
+}
+
+// TestFilter_XPathRoundTrip verifies an XPath filter with a select expression
+// round-trips and encodes the select attribute correctly.
+func TestFilter_XPathRoundTrip(t *testing.T) {
+	type wrapper struct {
+		XMLName xml.Name      `xml:"get"`
+		F       netconf.Filter `xml:"filter"`
+	}
+	orig := wrapper{F: netconf.Filter{
+		Type:   "xpath",
+		Select: "/interfaces/interface[name='eth0']",
+	}}
+
+	data, err := xml.Marshal(orig)
+	require.NoError(t, err)
+	xmlStr := string(data)
+
+	assert.Contains(t, xmlStr, `type="xpath"`, "xpath type must be an attribute")
+	assert.Contains(t, xmlStr, `select=`, "select expression must be an attribute")
+	assert.Contains(t, xmlStr, "eth0", "select value must be present")
+
+	var got wrapper
+	require.NoError(t, xml.Unmarshal(data, &got))
+	assert.Equal(t, "xpath", got.F.Type, "Type must round-trip")
+	assert.Equal(t, orig.F.Select, got.F.Select, "Select must round-trip")
+}
+
+// TestFilter_SubtreeOmitsSelectAttr verifies that the select attribute is absent
+// from a subtree filter output.
+func TestFilter_SubtreeOmitsSelectAttr(t *testing.T) {
+	type wrapper struct {
+		XMLName xml.Name      `xml:"get"`
+		F       netconf.Filter `xml:"filter"`
+	}
+	w := wrapper{F: netconf.Filter{Type: "subtree", Content: []byte(`<foo/>`)}}
+	xmlStr := mustMarshal(t, w)
+	assert.NotContains(t, xmlStr, `select=`, "subtree filter must not have select attr")
+}
+
+// ── DataReply decode test ─────────────────────────────────────────────────────
+
+// TestDataReply_DecodeFromBody simulates decoding the <data> element from
+// RPCReply.Body, which is the normal path after a get or get-config response.
+func TestDataReply_DecodeFromBody(t *testing.T) {
+	// Construct a realistic RPCReply.Body containing a <data> element.
+	body := []byte(`<data><interfaces><interface><name>lo</name></interface></interfaces></data>`)
+
+	var dr netconf.DataReply
+	require.NoError(t, xml.Unmarshal(body, &dr), "DataReply must decode from <data> bytes")
+
+	assert.Contains(t, string(dr.Content), "lo",
+		"DataReply.Content must hold the inner XML of <data>")
+	assert.Contains(t, string(dr.Content), "interfaces",
+		"DataReply.Content must preserve element structure")
+}
+
+// TestDataReply_EmptyData verifies that an empty <data/> element is handled
+// without error and Content is empty/nil.
+func TestDataReply_EmptyData(t *testing.T) {
+	var dr netconf.DataReply
+	require.NoError(t, xml.Unmarshal([]byte(`<data/>`), &dr))
+	assert.Empty(t, dr.Content, "empty <data/> must yield empty Content")
+}
+
+// ── Operation round-trip tests ────────────────────────────────────────────────
+
+// TestGet_MarshalRoundTrip verifies Get with a subtree filter round-trips.
+func TestGet_MarshalRoundTrip(t *testing.T) {
+	orig := netconf.Get{
+		Filter: &netconf.Filter{
+			Type:    "subtree",
+			Content: []byte(`<interfaces/>`),
+		},
+	}
+
+	xmlStr := mustMarshal(t, orig)
+	assertNSPresent(t, xmlStr, "get")
+	assert.Contains(t, xmlStr, "<get ", "must be a <get> element")
+	assert.Contains(t, xmlStr, "interfaces", "filter content must be present")
+
+	var got netconf.Get
+	require.NoError(t, xml.Unmarshal([]byte(xmlStr), &got))
+	require.NotNil(t, got.Filter, "Filter must survive round-trip")
+	assert.Equal(t, "subtree", got.Filter.Type)
+}
+
+// TestGet_NoFilter verifies Get with no filter omits the <filter> element.
+func TestGet_NoFilter(t *testing.T) {
+	orig := netconf.Get{}
+	xmlStr := mustMarshal(t, orig)
+	assertNSPresent(t, xmlStr, "get")
+	assert.NotContains(t, xmlStr, "<filter", "omitted filter must not appear in XML")
+}
+
+// TestGetConfig_MarshalRoundTrip verifies GetConfig with running source
+// and a subtree filter round-trips correctly.
+func TestGetConfig_MarshalRoundTrip(t *testing.T) {
+	orig := netconf.GetConfig{
+		Source: netconf.Datastore{Running: &struct{}{}},
+		Filter: &netconf.Filter{
+			Type:   "xpath",
+			Select: "/config/system",
+		},
+	}
+
+	xmlStr := mustMarshal(t, orig)
+	assertNSPresent(t, xmlStr, "get-config")
+	assert.Contains(t, xmlStr, "<get-config ", "must be <get-config>")
+	assert.Contains(t, xmlStr, "<running>", "running datastore must be present")
+	assert.Contains(t, xmlStr, `select=`, "XPath select must be present")
+
+	var got netconf.GetConfig
+	require.NoError(t, xml.Unmarshal([]byte(xmlStr), &got))
+	assert.NotNil(t, got.Source.Running, "Source.Running must survive round-trip")
+	require.NotNil(t, got.Filter)
+	assert.Equal(t, "/config/system", got.Filter.Select)
+}
+
+// TestEditConfig_MarshalRoundTrip verifies EditConfig with all optional fields set.
+func TestEditConfig_MarshalRoundTrip(t *testing.T) {
+	config := []byte(`<config><system><hostname>router1</hostname></system></config>`)
+	orig := netconf.EditConfig{
+		Target:           netconf.Datastore{Running: &struct{}{}},
+		DefaultOperation: "merge",
+		TestOption:       "test-then-set",
+		ErrorOption:      "rollback-on-error",
+		Config:           config,
+	}
+
+	xmlStr := mustMarshal(t, orig)
+	assertNSPresent(t, xmlStr, "edit-config")
+	assert.Contains(t, xmlStr, "<edit-config ", "must be <edit-config>")
+	assert.Contains(t, xmlStr, "<running>", "running target must be present")
+	assert.Contains(t, xmlStr, "merge", "default-operation must be present")
+	assert.Contains(t, xmlStr, "rollback-on-error", "error-option must be present")
+	assert.Contains(t, xmlStr, "router1", "config content must be present")
+
+	var got netconf.EditConfig
+	require.NoError(t, xml.Unmarshal([]byte(xmlStr), &got))
+	assert.NotNil(t, got.Target.Running)
+	assert.Equal(t, "merge", got.DefaultOperation)
+	assert.Equal(t, "test-then-set", got.TestOption)
+	assert.Equal(t, "rollback-on-error", got.ErrorOption)
+	assert.Contains(t, string(got.Config), "router1")
+}
+
+// TestEditConfig_OptionalFieldsOmitted verifies optional EditConfig fields
+// are absent when zero.
+func TestEditConfig_OptionalFieldsOmitted(t *testing.T) {
+	orig := netconf.EditConfig{
+		Target: netconf.Datastore{Running: &struct{}{}},
+		Config: []byte(`<config/>`),
+	}
+	xmlStr := mustMarshal(t, orig)
+	assert.NotContains(t, xmlStr, "default-operation", "must be omitted when empty")
+	assert.NotContains(t, xmlStr, "test-option", "must be omitted when empty")
+	assert.NotContains(t, xmlStr, "error-option", "must be omitted when empty")
+}
+
+// TestCopyConfig_MarshalRoundTrip verifies CopyConfig with candidate→running round-trips.
+func TestCopyConfig_MarshalRoundTrip(t *testing.T) {
+	orig := netconf.CopyConfig{
+		Source: netconf.Datastore{Candidate: &struct{}{}},
+		Target: netconf.Datastore{Running: &struct{}{}},
+	}
+
+	xmlStr := mustMarshal(t, orig)
+	assertNSPresent(t, xmlStr, "copy-config")
+	assert.Contains(t, xmlStr, "<copy-config ", "must be <copy-config>")
+	assert.Contains(t, xmlStr, "<running>", "target running must be present")
+	assert.Contains(t, xmlStr, "<candidate>", "source candidate must be present")
+
+	var got netconf.CopyConfig
+	require.NoError(t, xml.Unmarshal([]byte(xmlStr), &got))
+	assert.NotNil(t, got.Source.Candidate)
+	assert.NotNil(t, got.Target.Running)
+}
+
+// TestDeleteConfig_MarshalRoundTrip verifies DeleteConfig with startup target.
+func TestDeleteConfig_MarshalRoundTrip(t *testing.T) {
+	orig := netconf.DeleteConfig{
+		Target: netconf.Datastore{Startup: &struct{}{}},
+	}
+
+	xmlStr := mustMarshal(t, orig)
+	assertNSPresent(t, xmlStr, "delete-config")
+	assert.Contains(t, xmlStr, "<delete-config ", "must be <delete-config>")
+	assert.Contains(t, xmlStr, "<startup>", "startup target must be present")
+
+	var got netconf.DeleteConfig
+	require.NoError(t, xml.Unmarshal([]byte(xmlStr), &got))
+	assert.NotNil(t, got.Target.Startup)
+}
+
+// TestLock_MarshalRoundTrip verifies Lock with running datastore.
+func TestLock_MarshalRoundTrip(t *testing.T) {
+	orig := netconf.Lock{
+		Target: netconf.Datastore{Running: &struct{}{}},
+	}
+
+	xmlStr := mustMarshal(t, orig)
+	assertNSPresent(t, xmlStr, "lock")
+	assert.Contains(t, xmlStr, "<lock ", "must be <lock>")
+	assert.Contains(t, xmlStr, "<running>")
+
+	var got netconf.Lock
+	require.NoError(t, xml.Unmarshal([]byte(xmlStr), &got))
+	assert.NotNil(t, got.Target.Running)
+}
+
+// TestUnlock_MarshalRoundTrip verifies Unlock with candidate datastore.
+func TestUnlock_MarshalRoundTrip(t *testing.T) {
+	orig := netconf.Unlock{
+		Target: netconf.Datastore{Candidate: &struct{}{}},
+	}
+
+	xmlStr := mustMarshal(t, orig)
+	assertNSPresent(t, xmlStr, "unlock")
+	assert.Contains(t, xmlStr, "<unlock ", "must be <unlock>")
+	assert.Contains(t, xmlStr, "<candidate>")
+
+	var got netconf.Unlock
+	require.NoError(t, xml.Unmarshal([]byte(xmlStr), &got))
+	assert.NotNil(t, got.Target.Candidate)
+}
+
+// TestCloseSession_MarshalRoundTrip verifies CloseSession has no body fields.
+func TestCloseSession_MarshalRoundTrip(t *testing.T) {
+	orig := netconf.CloseSession{}
+
+	xmlStr := mustMarshal(t, orig)
+	assertNSPresent(t, xmlStr, "close-session")
+	assert.Contains(t, xmlStr, "close-session", "must contain close-session element")
+
+	var got netconf.CloseSession
+	require.NoError(t, xml.Unmarshal([]byte(xmlStr), &got))
+	// Struct has no fields to verify beyond successful unmarshal.
+	_ = got
+}
+
+// TestKillSession_MarshalRoundTrip verifies KillSession with a session ID.
+func TestKillSession_MarshalRoundTrip(t *testing.T) {
+	orig := netconf.KillSession{SessionID: 42}
+
+	xmlStr := mustMarshal(t, orig)
+	assertNSPresent(t, xmlStr, "kill-session")
+	assert.Contains(t, xmlStr, "kill-session", "must contain kill-session element")
+	assert.Contains(t, xmlStr, "42", "session-id value must be present")
+
+	var got netconf.KillSession
+	require.NoError(t, xml.Unmarshal([]byte(xmlStr), &got))
+	assert.Equal(t, uint32(42), got.SessionID, "SessionID must round-trip")
+}
+
+// TestKillSession_ZeroSessionID verifies zero SessionID is still encoded
+// (it is a required field per RFC 6241).
+func TestKillSession_ZeroSessionID(t *testing.T) {
+	orig := netconf.KillSession{SessionID: 0}
+	xmlStr := mustMarshal(t, orig)
+	// The element must be present even when zero — kill-session always requires it.
+	assert.Contains(t, xmlStr, "session-id", "session-id element must always be present")
+}
+
+// TestValidate_MarshalRoundTrip verifies Validate with candidate source.
+func TestValidate_MarshalRoundTrip(t *testing.T) {
+	orig := netconf.Validate{
+		Source: netconf.Datastore{Candidate: &struct{}{}},
+	}
+
+	xmlStr := mustMarshal(t, orig)
+	assertNSPresent(t, xmlStr, "validate")
+	assert.Contains(t, xmlStr, "<validate ", "must be <validate>")
+	assert.Contains(t, xmlStr, "<candidate>")
+
+	var got netconf.Validate
+	require.NoError(t, xml.Unmarshal([]byte(xmlStr), &got))
+	assert.NotNil(t, got.Source.Candidate)
+}
+
+// TestCommit_MarshalRoundTrip verifies a plain commit (no confirmed-commit fields).
+func TestCommit_MarshalRoundTrip(t *testing.T) {
+	orig := netconf.Commit{}
+
+	xmlStr := mustMarshal(t, orig)
+	assertNSPresent(t, xmlStr, "commit")
+	assert.Contains(t, xmlStr, "commit", "must be a commit element")
+	// Optional fields must be absent.
+	assert.NotContains(t, xmlStr, "confirmed", "confirmed must be absent when not set")
+	assert.NotContains(t, xmlStr, "confirm-timeout", "confirm-timeout must be absent")
+
+	var got netconf.Commit
+	require.NoError(t, xml.Unmarshal([]byte(xmlStr), &got))
+	assert.Nil(t, got.Confirmed, "Confirmed must be nil after round-trip of plain commit")
+}
+
+// TestCommit_ConfirmedCommit_MarshalRoundTrip verifies all confirmed-commit
+// optional fields are encoded and preserved.
+func TestCommit_ConfirmedCommit_MarshalRoundTrip(t *testing.T) {
+	orig := netconf.Commit{
+		Confirmed:      &struct{}{},
+		ConfirmTimeout: 300,
+		Persist:        "my-token",
+		PersistID:      "prior-token",
+	}
+
+	xmlStr := mustMarshal(t, orig)
+	assertNSPresent(t, xmlStr, "commit")
+	assert.Contains(t, xmlStr, "confirmed", "confirmed element must be present")
+	assert.Contains(t, xmlStr, "300", "confirm-timeout must be present")
+	assert.Contains(t, xmlStr, "my-token", "persist token must be present")
+	assert.Contains(t, xmlStr, "prior-token", "persist-id must be present")
+
+	var got netconf.Commit
+	require.NoError(t, xml.Unmarshal([]byte(xmlStr), &got))
+	assert.NotNil(t, got.Confirmed)
+	assert.Equal(t, uint32(300), got.ConfirmTimeout)
+	assert.Equal(t, "my-token", got.Persist)
+	assert.Equal(t, "prior-token", got.PersistID)
+}
+
+// TestDiscardChanges_MarshalRoundTrip verifies DiscardChanges has no body.
+func TestDiscardChanges_MarshalRoundTrip(t *testing.T) {
+	orig := netconf.DiscardChanges{}
+
+	xmlStr := mustMarshal(t, orig)
+	assertNSPresent(t, xmlStr, "discard-changes")
+	assert.Contains(t, xmlStr, "discard-changes", "must contain discard-changes element")
+
+	var got netconf.DiscardChanges
+	require.NoError(t, xml.Unmarshal([]byte(xmlStr), &got))
+	_ = got
+}
+
+// TestCancelCommit_MarshalRoundTrip verifies CancelCommit with and without PersistID.
+func TestCancelCommit_MarshalRoundTrip(t *testing.T) {
+	// With PersistID.
+	orig := netconf.CancelCommit{PersistID: "token-abc"}
+
+	xmlStr := mustMarshal(t, orig)
+	assertNSPresent(t, xmlStr, "cancel-commit")
+	assert.Contains(t, xmlStr, "cancel-commit", "must contain cancel-commit element")
+	assert.Contains(t, xmlStr, "token-abc", "persist-id must be present")
+
+	var got netconf.CancelCommit
+	require.NoError(t, xml.Unmarshal([]byte(xmlStr), &got))
+	assert.Equal(t, "token-abc", got.PersistID)
+}
+
+// TestCancelCommit_NoPersistID verifies PersistID is omitted when zero.
+func TestCancelCommit_NoPersistID(t *testing.T) {
+	orig := netconf.CancelCommit{}
+	xmlStr := mustMarshal(t, orig)
+	assert.NotContains(t, xmlStr, "persist-id", "persist-id must be absent when empty")
+}
+
+// ── RPC composition test ──────────────────────────────────────────────────────
+
+// TestRPC_WithGetConfig_Composition proves that a GetConfig operation
+// can be marshaled into RPC.Body, the full RPC then marshaled to wire format,
+// and the result correctly decoded back through RPCReply.Body → DataReply.
+func TestRPC_WithGetConfig_Composition(t *testing.T) {
+	// Step 1: marshal the GetConfig operation.
+	gc := netconf.GetConfig{
+		Source: netconf.Datastore{Running: &struct{}{}},
+	}
+	gcBytes, err := xml.Marshal(gc)
+	require.NoError(t, err, "GetConfig marshal must succeed")
+
+	// Step 2: embed into an RPC wrapper.
+	rpc := netconf.RPC{
+		MessageID: "1",
+		Body:      gcBytes,
+	}
+	rpcBytes, err := xml.Marshal(rpc)
+	require.NoError(t, err, "RPC marshal must succeed")
+
+	rpcStr := string(rpcBytes)
+	assert.Contains(t, rpcStr, `message-id="1"`, "RPC must have message-id attribute")
+	assert.Contains(t, rpcStr, "get-config", "RPC body must contain get-config")
+	assert.Contains(t, rpcStr, "<running>", "source datastore must appear in output")
+
+	// Step 3: unmarshal back as an RPC to verify structure.
+	var decodedRPC netconf.RPC
+	require.NoError(t, xml.Unmarshal(rpcBytes, &decodedRPC))
+	assert.Equal(t, "1", decodedRPC.MessageID)
+	assert.Contains(t, string(decodedRPC.Body), "get-config")
+
+	// Step 4: decode the GetConfig back from the RPC Body (simulating a server reading the request).
+	var gotGC netconf.GetConfig
+	require.NoError(t, xml.Unmarshal(decodedRPC.Body, &gotGC),
+		"GetConfig must decode from RPC.Body")
+	assert.NotNil(t, gotGC.Source.Running, "source running must survive full round-trip")
+
+	// Step 5: simulate a DataReply coming back in RPCReply.Body.
+	dataXML := `<data><interfaces><interface><name>lo</name></interface></interfaces></data>`
+	reply := netconf.RPCReply{
+		MessageID: "1",
+		Body:      []byte(dataXML),
+	}
+	var dr netconf.DataReply
+	require.NoError(t, xml.Unmarshal(reply.Body, &dr),
+		"DataReply must decode from RPCReply.Body")
+	assert.Contains(t, string(dr.Content), "lo",
+		"DataReply content must be accessible after composition")
+}
+
+// ── Additional namespace verification tests ───────────────────────────────────
+
+// TestAllOperations_HaveNetconfNamespace verifies every operation element
+// carries the NETCONF base namespace as xmlns="…" in marshaled output.
+// This is the L001 invariant: namespace in struct tag, not set at runtime.
+func TestAllOperations_HaveNetconfNamespace(t *testing.T) {
+	const ns = `xmlns="urn:ietf:params:xml:ns:netconf:base:1.0"`
+
+	running := netconf.Datastore{Running: &struct{}{}}
+
+	cases := []struct {
+		name string
+		v    any
+	}{
+		{"Get", netconf.Get{}},
+		{"GetConfig", netconf.GetConfig{Source: running}},
+		{"EditConfig", netconf.EditConfig{Target: running, Config: []byte(`<config/>`)},},
+		{"CopyConfig", netconf.CopyConfig{Target: running, Source: running}},
+		{"DeleteConfig", netconf.DeleteConfig{Target: running}},
+		{"Lock", netconf.Lock{Target: running}},
+		{"Unlock", netconf.Unlock{Target: running}},
+		{"CloseSession", netconf.CloseSession{}},
+		{"KillSession", netconf.KillSession{SessionID: 1}},
+		{"Validate", netconf.Validate{Source: running}},
+		{"Commit", netconf.Commit{}},
+		{"DiscardChanges", netconf.DiscardChanges{}},
+		{"CancelCommit", netconf.CancelCommit{}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			data, err := xml.Marshal(tc.v)
+			require.NoError(t, err)
+			assert.Contains(t, string(data), ns,
+				"%s must carry NETCONF base namespace", tc.name)
+		})
+	}
+}
+
+// ── Correct element names ─────────────────────────────────────────────────────
+
+// TestAllOperations_ElementNames verifies the XML element name for every
+// operation matches the RFC 6241 §7 element name exactly.
+func TestAllOperations_ElementNames(t *testing.T) {
+	running := netconf.Datastore{Running: &struct{}{}}
+
+	cases := []struct {
+		name    string
+		v       any
+		element string
+	}{
+		{"Get", netconf.Get{}, "get"},
+		{"GetConfig", netconf.GetConfig{Source: running}, "get-config"},
+		{"EditConfig", netconf.EditConfig{Target: running, Config: []byte(`<config/>`)}, "edit-config"},
+		{"CopyConfig", netconf.CopyConfig{Target: running, Source: running}, "copy-config"},
+		{"DeleteConfig", netconf.DeleteConfig{Target: running}, "delete-config"},
+		{"Lock", netconf.Lock{Target: running}, "lock"},
+		{"Unlock", netconf.Unlock{Target: running}, "unlock"},
+		{"CloseSession", netconf.CloseSession{}, "close-session"},
+		{"KillSession", netconf.KillSession{SessionID: 1}, "kill-session"},
+		{"Validate", netconf.Validate{Source: running}, "validate"},
+		{"Commit", netconf.Commit{}, "commit"},
+		{"DiscardChanges", netconf.DiscardChanges{}, "discard-changes"},
+		{"CancelCommit", netconf.CancelCommit{}, "cancel-commit"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			data, err := xml.Marshal(tc.v)
+			require.NoError(t, err)
+			xmlStr := string(data)
+			assert.True(t, strings.Contains(xmlStr, "<"+tc.element+" ") ||
+				strings.Contains(xmlStr, "<"+tc.element+">") ||
+				strings.Contains(xmlStr, "<"+tc.element+"/>"),
+				"%s must have element name <%s>, got: %s", tc.name, tc.element, xmlStr)
+		})
+	}
+}
