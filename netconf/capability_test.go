@@ -212,3 +212,52 @@ func TestStandardCapabilities_Exact(t *testing.T) {
 		assert.Equal(t, want, cap, "constant value mismatch")
 	}
 }
+
+// ── RFC 5277 notification capability constants ────────────────────────────────
+
+// TestCapability_Notification_ValidURN verifies that CapabilityNotification passes
+// ValidateURN (RFC 7803 format compliance).
+func TestCapability_Notification_ValidURN(t *testing.T) {
+	err := netconf.ValidateURN(netconf.CapabilityNotification)
+	require.NoError(t, err, "CapabilityNotification must pass ValidateURN")
+}
+
+// TestCapability_Interleave_ValidURN verifies that CapabilityInterleave passes
+// ValidateURN (RFC 7803 format compliance).
+func TestCapability_Interleave_ValidURN(t *testing.T) {
+	err := netconf.ValidateURN(netconf.CapabilityInterleave)
+	require.NoError(t, err, "CapabilityInterleave must pass ValidateURN")
+}
+
+// TestCapability_Notification_ExactValue verifies the exact URN string for
+// CapabilityNotification matches RFC 5277 §3.1.
+func TestCapability_Notification_ExactValue(t *testing.T) {
+	assert.Equal(t,
+		"urn:ietf:params:netconf:capability:notification:1.0",
+		netconf.CapabilityNotification,
+		"CapabilityNotification must match RFC 5277 §3.1 URN exactly",
+	)
+}
+
+// TestCapability_Interleave_ExactValue verifies the exact URN string for
+// CapabilityInterleave matches RFC 5277 §6.2.
+func TestCapability_Interleave_ExactValue(t *testing.T) {
+	assert.Equal(t,
+		"urn:ietf:params:netconf:capability:interleave:1.0",
+		netconf.CapabilityInterleave,
+		"CapabilityInterleave must match RFC 5277 §6.2 URN exactly",
+	)
+}
+
+// TestCapabilitySet_ContainsNotificationCaps verifies that a CapabilitySet
+// built with the notification constants correctly reports Contains for each.
+func TestCapabilitySet_ContainsNotificationCaps(t *testing.T) {
+	cs := netconf.NewCapabilitySet([]string{
+		netconf.CapabilityNotification,
+		netconf.CapabilityInterleave,
+	})
+	assert.True(t, cs.Contains(netconf.CapabilityNotification),
+		"CapabilitySet must contain CapabilityNotification")
+	assert.True(t, cs.Contains(netconf.CapabilityInterleave),
+		"CapabilitySet must contain CapabilityInterleave")
+}

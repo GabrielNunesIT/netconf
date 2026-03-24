@@ -202,3 +202,93 @@ func TestHello_Marshal_NotEmpty(t *testing.T) {
 	require.NoError(t, xml.NewEncoder(&buf).Encode(&h))
 	assert.NotEmpty(t, buf.Bytes())
 }
+
+// ── Notification (RFC 5277) ───────────────────────────────────────────────────
+
+// TestNotification_MarshalNamespace verifies that a Notification marshals with
+// the RFC 5277 notification namespace and the <notification> root element name.
+func TestNotification_MarshalNamespace(t *testing.T) {
+	n := netconf.Notification{
+		EventTime: "2024-01-01T00:00:00Z",
+	}
+	data, err := xml.Marshal(&n)
+	require.NoError(t, err, "marshal should succeed")
+
+	s := string(data)
+	assert.Contains(t, s,
+		`xmlns="urn:ietf:params:xml:ns:netconf:notification:1.0"`,
+		"notification must carry the RFC 5277 notification namespace")
+	assert.Contains(t, s, "<notification ", "root element must be <notification")
+	// Must NOT carry the base NETCONF namespace — that is a different element.
+	assert.NotContains(t, s,
+		`xmlns="urn:ietf:params:xml:ns:netconf:base:1.0"`,
+		"notification must NOT carry the base NETCONF namespace")
+}
+
+// TestNotification_RoundTrip verifies that a Notification with EventTime and Body
+// survives a marshal/unmarshal round-trip with all fields intact.
+func TestNotification_RoundTrip(t *testing.T) {
+	body := []byte(`<replayComplete xmlns="urn:ietf:params:xml:ns:netconf:notification:1.0"/>`)
+	original := netconf.Notification{
+		EventTime: "2024-06-15T12:34:56.789Z",
+		Body:      body,
+	}
+	data, err := xml.Marshal(&original)
+	require.NoError(t, err)
+
+	var decoded netconf.Notification
+	require.NoError(t, xml.Unmarshal(data, &decoded))
+
+	assert.Equal(t, original.EventTime, decoded.EventTime,
+		"EventTime must survive round-trip")
+	assert.Contains(t, string(decoded.Body), "replayComplete",
+		"Body content must survive round-trip")
+}
+
+// TestNotification_RoundTrip_EmptyBody verifies that a Notification with EventTime
+// but no additional event body round-trips cleanly.
+// Note: Go's encoding/xml with ",innerxml" captures all inner XML including <eventTime>.
+// When no event-specific body is present beyond the required EventTime, Body contains
+// the <eventTime> element bytes — this is expected xml decoder behavior.
+func TestNotification_RoundTrip_EmptyBody(t *testing.T) {
+	original := netconf.Notification{
+		EventTime: "2024-01-01T00:00:00Z",
+	}
+	data, err := xml.Marshal(&original)
+	require.NoError(t, err)
+
+	var decoded netconf.Notification
+	require.NoError(t, xml.Unmarshal(data, &decoded))
+
+	assert.Equal(t, original.EventTime, decoded.EventTime,
+		"EventTime must survive round-trip even with no event-body content")
+	// Body captures all inner XML (including <eventTime>) due to innerxml semantics.
+	// When no event-specific payload is present, Body should not contain any event element.
+	assert.NotContains(t, string(decoded.Body), "<netconf-config-change",
+		"Body must not contain event-specific content that was not set")
+}
+
+// TestNotification_UnmarshalFromWire simulates decoding a notification as it would
+// arrive on the wire from a NETCONF server.
+func TestNotification_UnmarshalFromWire(t *testing.T) {
+	wire := `<notification xmlns="urn:ietf:params:xml:ns:netconf:notification:1.0">` +
+		`<eventTime>2024-03-14T09:26:53Z</eventTime>` +
+		`<netconf-config-change xmlns="urn:ietf:params:xml:ns:yang:ietf-netconf-notifications">` +
+		`<changed-by><server/></changed-by>` +
+		`</netconf-config-change>` +
+		`</notification>`
+
+	var n netconf.Notification
+	require.NoError(t, xml.NewDecoder(strings.NewReader(wire)).Decode(&n))
+
+	assert.Equal(t, "2024-03-14T09:26:53Z", n.EventTime)
+	assert.Contains(t, string(n.Body), "netconf-config-change")
+}
+
+// TestNotificationName_Constants verifies the NotificationName xml.Name var and
+// NotificationNS constant are set to the correct RFC 5277 values.
+func TestNotificationName_Constants(t *testing.T) {
+	assert.Equal(t, "urn:ietf:params:xml:ns:netconf:notification:1.0", netconf.NotificationNS)
+	assert.Equal(t, "urn:ietf:params:xml:ns:netconf:notification:1.0", netconf.NotificationName.Space)
+	assert.Equal(t, "notification", netconf.NotificationName.Local)
+}

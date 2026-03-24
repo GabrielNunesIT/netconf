@@ -28,6 +28,21 @@ const (
 	BaseCap11 Capability = "urn:ietf:params:netconf:base:1.1"
 )
 
+// Notification capability constants defined in RFC 5277.
+// These URNs follow the same urn:ietf:params:netconf:capability format as the
+// RFC 6241 capabilities and pass ValidateURN.
+const (
+	// CapabilityNotification is the :notification capability (RFC 5277 §3.1).
+	// When present, the device supports the create-subscription operation and
+	// can send <notification> messages to the client.
+	CapabilityNotification Capability = "urn:ietf:params:netconf:capability:notification:1.0"
+
+	// CapabilityInterleave is the :interleave capability (RFC 5277 §6.2).
+	// When present, the device supports interleaving RPC requests with an active
+	// notification subscription on the same session.
+	CapabilityInterleave Capability = "urn:ietf:params:netconf:capability:interleave:1.0"
+)
+
 // Standard optional capability constants defined in RFC 6241 §8 and related RFCs.
 // All URNs pass ValidateURN and follow the RFC 7803 urn:ietf:params:netconf:capability format.
 const (

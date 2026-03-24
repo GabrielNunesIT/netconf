@@ -10,6 +10,11 @@ import "encoding/xml"
 // NetconfNS is the XML namespace for all NETCONF base messages (RFC 6241 §3.1).
 const NetconfNS = "urn:ietf:params:xml:ns:netconf:base:1.0"
 
+// NotificationNS is the XML namespace for NETCONF notification messages (RFC 5277 §4).
+// It is distinct from NetconfNS and is used by the <notification> element and the
+// <create-subscription> operation.
+const NotificationNS = "urn:ietf:params:xml:ns:netconf:notification:1.0"
+
 // HelloName is the xml.Name constant for the <hello> element.
 var HelloName = xml.Name{Space: NetconfNS, Local: "hello"}
 
@@ -18,6 +23,10 @@ var RPCName = xml.Name{Space: NetconfNS, Local: "rpc"}
 
 // RPCReplyName is the xml.Name constant for the <rpc-reply> element.
 var RPCReplyName = xml.Name{Space: NetconfNS, Local: "rpc-reply"}
+
+// NotificationName is the xml.Name constant for the <notification> element (RFC 5277 §4).
+// Its namespace is NotificationNS, not NetconfNS.
+var NotificationName = xml.Name{Space: NotificationNS, Local: "notification"}
 
 // Hello represents a NETCONF <hello> message (RFC 6241 §8.1).
 //
@@ -51,5 +60,20 @@ type RPCReply struct {
 	XMLName   xml.Name `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 rpc-reply"`
 	MessageID string   `xml:"message-id,attr"`
 	Ok        *struct{} `xml:"ok"`
+	Body      []byte   `xml:",innerxml"`
+}
+
+// Notification represents a NETCONF <notification> event message (RFC 5277 §4).
+//
+// The XMLName uses the RFC 5277 notification namespace (NotificationNS), which is
+// distinct from the base NETCONF namespace. EventTime is the mandatory xs:dateTime
+// timestamp of the event. Body holds the raw inner XML of the event-specific content
+// (everything inside <notification> after <eventTime>).
+//
+// Marshaling note: encoding/xml emits xmlns="urn:ietf:params:xml:ns:netconf:notification:1.0"
+// on the root element when XMLName.Space is set, which is correct per RFC 5277.
+type Notification struct {
+	XMLName   xml.Name `xml:"urn:ietf:params:xml:ns:netconf:notification:1.0 notification"`
+	EventTime string   `xml:"eventTime"`
 	Body      []byte   `xml:",innerxml"`
 }

@@ -477,6 +477,85 @@ func TestCancelCommit_NoPersistID(t *testing.T) {
 	assert.NotContains(t, xmlStr, "persist-id", "persist-id must be absent when empty")
 }
 
+// ── CreateSubscription (RFC 5277) ─────────────────────────────────────────────
+
+// TestCreateSubscription_MarshalNamespace verifies that CreateSubscription marshals
+// with the RFC 5277 notification namespace and the <create-subscription> element name.
+func TestCreateSubscription_MarshalNamespace(t *testing.T) {
+	cs := netconf.CreateSubscription{}
+	xmlStr := mustMarshal(t, cs)
+
+	assert.Contains(t, xmlStr,
+		`xmlns="urn:ietf:params:xml:ns:netconf:notification:1.0"`,
+		"create-subscription must carry the RFC 5277 notification namespace")
+	assert.True(t,
+		strings.Contains(xmlStr, "<create-subscription ") ||
+			strings.Contains(xmlStr, "<create-subscription>") ||
+			strings.Contains(xmlStr, "<create-subscription/>"),
+		"root element must be <create-subscription>, got: %s", xmlStr)
+	// Must NOT carry the base NETCONF namespace.
+	assert.NotContains(t, xmlStr,
+		`xmlns="urn:ietf:params:xml:ns:netconf:base:1.0"`,
+		"create-subscription must NOT carry the base NETCONF namespace")
+}
+
+// TestCreateSubscription_RoundTrip verifies that a CreateSubscription with Stream,
+// StartTime, and StopTime set survives a marshal/unmarshal round-trip.
+func TestCreateSubscription_RoundTrip(t *testing.T) {
+	orig := netconf.CreateSubscription{
+		Stream:    "NETCONF",
+		StartTime: "2024-01-01T00:00:00Z",
+		StopTime:  "2024-01-02T00:00:00Z",
+	}
+	xmlStr := mustMarshal(t, orig)
+
+	assert.Contains(t, xmlStr, "NETCONF", "stream must be present")
+	assert.Contains(t, xmlStr, "2024-01-01T00:00:00Z", "startTime must be present")
+	assert.Contains(t, xmlStr, "2024-01-02T00:00:00Z", "stopTime must be present")
+
+	var got netconf.CreateSubscription
+	require.NoError(t, xml.Unmarshal([]byte(xmlStr), &got))
+	assert.Equal(t, orig.Stream, got.Stream, "Stream must survive round-trip")
+	assert.Equal(t, orig.StartTime, got.StartTime, "StartTime must survive round-trip")
+	assert.Equal(t, orig.StopTime, got.StopTime, "StopTime must survive round-trip")
+}
+
+// TestCreateSubscription_OmitEmpty verifies that a CreateSubscription with no optional
+// fields set emits only the root element with namespace — no child elements.
+func TestCreateSubscription_OmitEmpty(t *testing.T) {
+	orig := netconf.CreateSubscription{}
+	xmlStr := mustMarshal(t, orig)
+
+	assert.NotContains(t, xmlStr, "<stream>", "stream must be omitted when empty")
+	assert.NotContains(t, xmlStr, "<filter>", "filter must be omitted when nil")
+	assert.NotContains(t, xmlStr, "<startTime>", "startTime must be omitted when empty")
+	assert.NotContains(t, xmlStr, "<stopTime>", "stopTime must be omitted when empty")
+	assert.Contains(t, xmlStr,
+		`xmlns="urn:ietf:params:xml:ns:netconf:notification:1.0"`,
+		"namespace must still be present on empty create-subscription")
+}
+
+// TestCreateSubscription_WithFilter verifies that a CreateSubscription with a filter
+// marshals the filter child element correctly.
+func TestCreateSubscription_WithFilter(t *testing.T) {
+	orig := netconf.CreateSubscription{
+		Stream: "NETCONF",
+		Filter: &netconf.Filter{
+			Type:    "subtree",
+			Content: []byte(`<netconf-config-change/>`),
+		},
+	}
+	xmlStr := mustMarshal(t, orig)
+
+	assert.Contains(t, xmlStr, `type="subtree"`, "filter type attribute must be present")
+	assert.Contains(t, xmlStr, "netconf-config-change", "filter content must be present")
+
+	var got netconf.CreateSubscription
+	require.NoError(t, xml.Unmarshal([]byte(xmlStr), &got))
+	require.NotNil(t, got.Filter, "Filter must survive round-trip")
+	assert.Equal(t, "subtree", got.Filter.Type, "Filter.Type must survive round-trip")
+}
+
 // ── RPC composition test ──────────────────────────────────────────────────────
 
 // TestRPC_WithGetConfig_Composition proves that a GetConfig operation

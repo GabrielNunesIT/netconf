@@ -185,3 +185,25 @@ type CancelCommit struct {
 	XMLName   xml.Name `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 cancel-commit"`
 	PersistID string   `xml:"persist-id,omitempty"`
 }
+
+// ── RFC 5277 notification operations ─────────────────────────────────────────
+
+// CreateSubscription requests the creation of a notification subscription
+// (RFC 5277 §2.1.1). Requires CapabilityNotification.
+//
+// The XMLName uses the RFC 5277 notification namespace
+// (urn:ietf:params:xml:ns:netconf:notification:1.0), which is distinct from
+// the base NETCONF namespace. This is critical for correct wire encoding.
+//
+// All fields are optional:
+//   - Stream:     name of the event stream to subscribe to (default: NETCONF)
+//   - Filter:     subtree or XPath filter to select events
+//   - StartTime:  xs:dateTime replay start (requires stored events)
+//   - StopTime:   xs:dateTime replay end (only valid with StartTime)
+type CreateSubscription struct {
+	XMLName   xml.Name `xml:"urn:ietf:params:xml:ns:netconf:notification:1.0 create-subscription"`
+	Stream    string   `xml:"stream,omitempty"`
+	Filter    *Filter  `xml:"filter,omitempty"`
+	StartTime string   `xml:"startTime,omitempty"`
+	StopTime  string   `xml:"stopTime,omitempty"`
+}
