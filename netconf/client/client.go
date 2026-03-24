@@ -39,6 +39,7 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"encoding/xml"
 	"errors"
@@ -72,6 +73,8 @@ type Client struct {
 
 	sendMu    sync.Mutex // serialises Session.Send calls
 	closeOnce sync.Once
+
+	notifCh chan *netconf.Notification // buffered channel for RFC 5277 notification events
 }
 
 // NewClient creates a Client around sess and starts the background dispatcher
@@ -81,15 +84,21 @@ func NewClient(sess *netconf.Session) *Client {
 		sess:    sess,
 		pending: make(map[string]chan rpcResult),
 		done:    make(chan struct{}),
+		notifCh: make(chan *netconf.Notification, 64),
 	}
 	go c.recvLoop()
 	return c
 }
 
-// recvLoop is the background dispatcher goroutine. It reads RPCReply messages
-// from the session and delivers them to waiting callers by message-id.
+// recvLoop is the background dispatcher goroutine. It reads messages from
+// the session and dispatches them by type:
+//   - <notification> (RFC 5277 namespace) → notifCh
+//   - <rpc-reply> → pending map, matched by message-id
+//
 // It exits when the transport returns an error (including io.EOF on close).
+// When it exits, notifCh is closed so receivers can range over it.
 func (c *Client) recvLoop() {
+	defer close(c.notifCh)
 	for {
 		raw, err := c.sess.Recv()
 		if err != nil {
@@ -104,6 +113,38 @@ func (c *Client) recvLoop() {
 			return
 		}
 
+		// Peek at the first start element to determine message type.
+		decoder := xml.NewDecoder(bytes.NewReader(raw))
+		var startElem xml.StartElement
+		for {
+			tok, tokErr := decoder.Token()
+			if tokErr != nil {
+				break // malformed — fall through to existing RPCReply path
+			}
+			if se, ok := tok.(xml.StartElement); ok {
+				startElem = se
+				break
+			}
+		}
+
+		// Route <notification> messages to the notification channel.
+		if startElem.Name.Space == netconf.NotificationNS && startElem.Name.Local == "notification" {
+			var notif netconf.Notification
+			if err := xml.Unmarshal(raw, &notif); err != nil {
+				// Malformed notification — skip; cannot recover without event-time.
+				continue
+			}
+			// Non-blocking send: drop notification if channel is full to prevent
+			// dispatcher stall. Slow receivers lose notifications (documented trade-off).
+			select {
+			case c.notifCh <- &notif:
+			default:
+				// Channel full — drop notification to prevent dispatcher stall.
+			}
+			continue
+		}
+
+		// Route <rpc-reply> messages through the pending-map path (unchanged behavior).
 		var reply netconf.RPCReply
 		if err := xml.Unmarshal(raw, &reply); err != nil {
 			// Malformed reply — skip; no caller to notify without a message-id.
@@ -227,6 +268,34 @@ func (c *Client) Err() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.dispatchErr
+}
+
+// Notifications returns the read-only channel on which the dispatcher delivers
+// RFC 5277 <notification> messages. The channel is buffered (capacity 64).
+// It is closed when the dispatcher exits (transport error or Close).
+//
+// Callers should drain the channel promptly — if it fills up, excess
+// notifications are dropped silently to prevent the dispatcher from stalling.
+func (c *Client) Notifications() <-chan *netconf.Notification {
+	return c.notifCh
+}
+
+// Subscribe sends a <create-subscription> RPC (RFC 5277 §2.1.1) and returns the
+// notification channel. The channel is the same as Notifications() — it is
+// created at Client construction time, not at Subscribe time, ensuring
+// notifications sent before Subscribe returns are not lost.
+//
+// On success, the caller should read from the returned channel. On error,
+// the subscription was not established and no notifications will be delivered.
+func (c *Client) Subscribe(ctx context.Context, sub netconf.CreateSubscription) (<-chan *netconf.Notification, error) {
+	reply, err := c.Do(ctx, &sub)
+	if err != nil {
+		return nil, fmt.Errorf("client: Subscribe: %w", err)
+	}
+	if err := checkReply(reply); err != nil {
+		return nil, fmt.Errorf("client: Subscribe: %w", err)
+	}
+	return c.notifCh, nil
 }
 
 // ── Reply helpers ─────────────────────────────────────────────────────────────

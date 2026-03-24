@@ -803,3 +803,183 @@ func TestClient_SSHLoopback(t *testing.T) {
 	require.NoError(t, cl.CloseSession(context.Background()))
 	require.NoError(t, cl.Close())
 }
+
+// ── Notification tests ────────────────────────────────────────────────────────
+
+// writeNotification marshals a netconf.Notification and writes it as a single
+// NETCONF message on the given transport.
+func writeNotification(t *testing.T, trp transport.Transport, notif *netconf.Notification) {
+	t.Helper()
+	data, err := xml.Marshal(notif)
+	require.NoError(t, err, "marshal Notification")
+	require.NoError(t, transport.WriteMsg(trp, data), "write notification to transport")
+}
+
+// TestClient_Notifications_ChannelExists verifies that Notifications() returns
+// a non-nil receive-only channel immediately after NewClient.
+func TestClient_Notifications_ChannelExists(t *testing.T) {
+	c, _ := newTestPair(t)
+	ch := c.Notifications()
+	require.NotNil(t, ch, "Notifications() must return a non-nil channel")
+	// The returned type is <-chan *netconf.Notification — verify by assignment.
+	var _ <-chan *netconf.Notification = ch
+}
+
+// TestClient_Subscribe_Success verifies that Subscribe sends a create-subscription
+// RPC, receives an <ok/> reply, and returns the same channel as Notifications().
+func TestClient_Subscribe_Success(t *testing.T) {
+	c, serverT := newTestPair(t)
+
+	subErrCh := make(chan error, 1)
+	subChCh := make(chan (<-chan *netconf.Notification), 1)
+	go func() {
+		ch, err := c.Subscribe(context.Background(), netconf.CreateSubscription{})
+		subChCh <- ch
+		subErrCh <- err
+	}()
+
+	// Server: read the RPC and assert it contains create-subscription.
+	raw, err := transport.ReadMsg(serverT)
+	require.NoError(t, err, "server must read the subscribe RPC")
+	var rpc netconf.RPC
+	require.NoError(t, xml.Unmarshal(raw, &rpc), "server must parse RPC")
+	assert.Contains(t, string(rpc.Body), "create-subscription",
+		"RPC body must contain create-subscription")
+
+	// Server: send an <ok/> reply.
+	writeReply(t, serverT, okReply(rpc.MessageID))
+
+	// Client: Subscribe must succeed and return the same channel as Notifications().
+	require.NoError(t, <-subErrCh, "Subscribe must succeed")
+	subCh := <-subChCh
+	require.NotNil(t, subCh, "Subscribe must return a non-nil channel")
+	assert.Equal(t, c.Notifications(), subCh,
+		"Subscribe must return the same channel as Notifications()")
+}
+
+// TestClient_NotificationDelivery verifies that a <notification> sent by the
+// server is delivered to the client's Notifications() channel with the correct
+// EventTime and Body content.
+func TestClient_NotificationDelivery(t *testing.T) {
+	c, serverT := newTestPair(t)
+
+	const eventTime = "2024-01-15T10:30:00Z"
+	const eventBody = `<netconf-config-change xmlns="urn:ietf:params:xml:ns:yang:ietf-netconf-notifications"><datastore>running</datastore></netconf-config-change>`
+
+	// Server: write a raw notification directly on the transport (no RPC handshake
+	// needed — notifications flow server→client unprompted).
+	notif := &netconf.Notification{
+		EventTime: eventTime,
+		Body:      []byte(eventTime + "<eventTime>" + eventTime + "</eventTime>" + eventBody),
+	}
+	// Use xml.Marshal to produce a properly-namespaced <notification> element.
+	notifXML, err := xml.Marshal(&netconf.Notification{
+		EventTime: eventTime,
+		Body:      []byte(eventBody),
+	})
+	require.NoError(t, err, "marshal notification")
+	// Discard notif — it was only used to illustrate structure.
+	_ = notif
+	require.NoError(t, transport.WriteMsg(serverT, notifXML), "write notification to transport")
+
+	// Client: receive from the notification channel with a timeout.
+	select {
+	case n := <-c.Notifications():
+		require.NotNil(t, n, "received notification must not be nil")
+		assert.Equal(t, eventTime, n.EventTime, "EventTime must match the sent value")
+		assert.Contains(t, string(n.Body), "netconf-config-change",
+			"Body must contain the event element")
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for notification")
+	}
+}
+
+// TestClient_NotificationDoesNotBlockRPC verifies that a notification and a
+// concurrent RPC can both be in-flight at the same time over the same session,
+// and that both are delivered correctly (notification interleave invariant).
+func TestClient_NotificationDoesNotBlockRPC(t *testing.T) {
+	c, serverT := newTestPair(t)
+
+	const eventTime = "2024-06-01T00:00:00Z"
+
+	// Server goroutine: send a notification, then service one RPC.
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+
+		// Send notification first (unprompted, before any RPC arrives).
+		notifXML, err := xml.Marshal(&netconf.Notification{
+			EventTime: eventTime,
+		})
+		if err != nil {
+			t.Errorf("server: marshal notification: %v", err)
+			return
+		}
+		if err := transport.WriteMsg(serverT, notifXML); err != nil {
+			t.Errorf("server: write notification: %v", err)
+			return
+		}
+
+		// Service the RPC that the client will issue.
+		raw, err := transport.ReadMsg(serverT)
+		if err != nil {
+			t.Errorf("server: read RPC: %v", err)
+			return
+		}
+		var rpc netconf.RPC
+		if err := xml.Unmarshal(raw, &rpc); err != nil {
+			t.Errorf("server: unmarshal RPC: %v", err)
+			return
+		}
+		reply := okReply(rpc.MessageID)
+		data, _ := xml.Marshal(reply)
+		if err := transport.WriteMsg(serverT, data); err != nil {
+			t.Errorf("server: write reply: %v", err)
+		}
+	}()
+
+	// Client: issue an RPC concurrently while the notification is in-flight.
+	rpcErrCh := make(chan error, 1)
+	go func() {
+		_, err := c.Do(context.Background(), netconf.CloseSession{})
+		rpcErrCh <- err
+	}()
+
+	// Both the notification and the RPC reply must arrive within 2 seconds.
+	notifReceived := false
+	rpcDone := false
+	deadline := time.After(2 * time.Second)
+	for !notifReceived || !rpcDone {
+		select {
+		case n := <-c.Notifications():
+			require.NotNil(t, n, "notification must not be nil")
+			assert.Equal(t, eventTime, n.EventTime, "EventTime must match")
+			notifReceived = true
+		case err := <-rpcErrCh:
+			require.NoError(t, err, "interleaved RPC must succeed")
+			rpcDone = true
+		case <-deadline:
+			t.Fatalf("timed out: notifReceived=%v rpcDone=%v", notifReceived, rpcDone)
+		}
+	}
+
+	<-serverDone
+}
+
+// TestClient_NotificationChannelClosedOnDispatcherExit verifies that the
+// notification channel is closed when the dispatcher exits (transport close).
+// This allows receivers to use range over the channel.
+func TestClient_NotificationChannelClosedOnDispatcherExit(t *testing.T) {
+	c, serverT := newTestPair(t)
+
+	// Close the server transport to force the dispatcher to exit.
+	require.NoError(t, serverT.Close(), "serverT.Close must succeed")
+
+	// The notification channel must be closed within a reasonable timeout.
+	select {
+	case _, open := <-c.Notifications():
+		assert.False(t, open, "Notifications() channel must be closed after dispatcher exit")
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for Notifications() channel to close")
+	}
+}
