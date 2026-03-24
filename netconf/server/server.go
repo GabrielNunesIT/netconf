@@ -186,6 +186,28 @@ func (s *Server) Serve(ctx context.Context, sess *netconf.Session) error {
 	}
 }
 
+// SendNotification marshals n and sends it to the client via sess.
+//
+// This function is NOT safe for concurrent use with other sends on the same
+// session. If notifications are sent from a goroutine other than the Serve
+// loop goroutine, the caller must serialize access to sess (e.g. via a
+// sync.Mutex). The Serve loop itself sends replies from a single goroutine,
+// so calling SendNotification from a separate goroutine requires external
+// synchronization.
+//
+// Error messages include the "server: SendNotification:" prefix for log
+// correlation.
+func SendNotification(sess *netconf.Session, n *netconf.Notification) error {
+	data, err := xml.Marshal(n)
+	if err != nil {
+		return fmt.Errorf("server: SendNotification: marshal: %w", err)
+	}
+	if err := sess.Send(data); err != nil {
+		return fmt.Errorf("server: SendNotification: send: %w", err)
+	}
+	return nil
+}
+
 // ── internal helpers ──────────────────────────────────────────────────────────
 
 // firstElementName returns the XML local name of the first start element found

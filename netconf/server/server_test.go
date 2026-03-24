@@ -320,6 +320,65 @@ func wrapOp(opName string) []byte {
 	return buf.Bytes()
 }
 
+// ── SendNotification tests ────────────────────────────────────────────────────
+
+// TestSendNotification verifies that SendNotification marshals a Notification
+// and delivers it over the session transport. The client side receives the raw
+// bytes, unmarshals them as a netconf.Notification, and asserts the EventTime
+// and Body fields match.
+//
+// The send runs in a goroutine because the loopback transport is synchronous:
+// sess.Send blocks until the other end reads, so client Recv and server Send
+// must happen concurrently.
+func TestSendNotification(t *testing.T) {
+	clientSess, serverSess := newTestPair(t)
+
+	const eventTime = "2026-01-01T00:00:00Z"
+	notif := &netconf.Notification{
+		EventTime: eventTime,
+		Body:      []byte(`<test-event/>`),
+	}
+
+	// Send from a goroutine — synchronous pipe: Send blocks until client reads.
+	sendErr := make(chan error, 1)
+	go func() {
+		sendErr <- server.SendNotification(serverSess, notif)
+	}()
+
+	// Receive and unmarshal on the client side.
+	raw, err := clientSess.Recv()
+	require.NoError(t, err, "client Recv must succeed")
+
+	// Wait for send to complete.
+	require.NoError(t, <-sendErr, "SendNotification must succeed")
+
+	var got netconf.Notification
+	require.NoError(t, xml.Unmarshal(raw, &got), "unmarshal Notification must succeed")
+
+	assert.Equal(t, eventTime, got.EventTime, "EventTime must round-trip")
+	assert.Contains(t, string(got.Body), "test-event", "Body must contain the event element")
+}
+
+// TestSendNotification_SendError verifies that SendNotification wraps transport
+// errors with the expected "server: SendNotification: send:" prefix.
+func TestSendNotification_SendError(t *testing.T) {
+	clientSess, serverSess := newTestPair(t)
+
+	// Close both sides so the next Send fails.
+	require.NoError(t, clientSess.Close())
+	require.NoError(t, serverSess.Close())
+
+	notif := &netconf.Notification{
+		EventTime: "2026-01-01T00:00:00Z",
+		Body:      []byte(`<test-event/>`),
+	}
+
+	err := server.SendNotification(serverSess, notif)
+	require.Error(t, err, "SendNotification must return an error when transport is closed")
+	assert.Contains(t, err.Error(), "server: SendNotification: send:",
+		"error must include the expected prefix")
+}
+
 // ── client↔server integration tests ──────────────────────────────────────────
 
 // newClientServerPair establishes a NETCONF loopback session pair, wraps the
