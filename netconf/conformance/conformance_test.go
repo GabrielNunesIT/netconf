@@ -33,10 +33,17 @@ package conformance_test
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	cryptotls "crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"math/big"
 	"net"
 	"strconv"
 	"strings"
@@ -49,6 +56,7 @@ import (
 	"github.com/GabrielNunesIT/netconf/netconf/server"
 	"github.com/GabrielNunesIT/netconf/netconf/transport"
 	ncssh "github.com/GabrielNunesIT/netconf/netconf/transport/ssh"
+	nctls "github.com/GabrielNunesIT/netconf/netconf/transport/tls"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	gossh "golang.org/x/crypto/ssh"
@@ -243,6 +251,195 @@ func newSSHPair(t *testing.T, caps netconf.CapabilitySet) *sshPair {
 
 // startServe starts p.srv.Serve in a goroutine.
 func (p *sshPair) startServe(ctx context.Context) chan error {
+	ch := make(chan error, 1)
+	go func() { ch <- p.srv.Serve(ctx, p.serverSess) }()
+	return ch
+}
+
+// ── TLS pair helper ───────────────────────────────────────────────────────────
+
+// caBundle holds a CA certificate and its private key.
+// Duplicated from netconf/transport/tls/tls_test.go (unexported helpers cannot
+// be imported cross-package — same pattern as generateTestSigner for SSH).
+type caBundle struct {
+	cert *x509.Certificate
+	key  *ecdsa.PrivateKey
+}
+
+// certBundle holds a signed certificate and its private key as TLS-ready PEM blocks.
+type certBundle struct {
+	cert    *x509.Certificate
+	certPEM []byte
+	keyPEM  []byte
+}
+
+// tlsConfigPair holds matched server and client TLS configs for a test.
+type tlsConfigPair struct {
+	server     *cryptotls.Config
+	client     *cryptotls.Config
+	clientCert *x509.Certificate
+}
+
+// generateTestCA creates a self-signed ECDSA P-256 CA certificate for use in tests.
+func generateTestCA(t *testing.T) *caBundle {
+	t.Helper()
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err, "generate CA key")
+
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "Test CA"},
+		NotBefore:             time.Now().Add(-time.Minute),
+		NotAfter:              time.Now().Add(time.Hour),
+		IsCA:                  true,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		BasicConstraintsValid: true,
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	require.NoError(t, err, "create CA cert")
+
+	cert, err := x509.ParseCertificate(certDER)
+	require.NoError(t, err, "parse CA cert")
+
+	return &caBundle{cert: cert, key: key}
+}
+
+// generateTestCert creates a certificate signed by ca using template.
+func generateTestCert(t *testing.T, ca *caBundle, template *x509.Certificate) *certBundle {
+	t.Helper()
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err, "generate cert key")
+
+	certDER, err := x509.CreateCertificate(rand.Reader, template, ca.cert, &key.PublicKey, ca.key)
+	require.NoError(t, err, "create cert")
+
+	cert, err := x509.ParseCertificate(certDER)
+	require.NoError(t, err, "parse cert")
+
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	require.NoError(t, err, "marshal key")
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+
+	return &certBundle{cert: cert, certPEM: certPEM, keyPEM: keyPEM}
+}
+
+// testTLSConfigs returns a matched server+client TLS config pair with mutual
+// authentication enabled.
+func testTLSConfigs(t *testing.T) *tlsConfigPair {
+	t.Helper()
+
+	ca := generateTestCA(t)
+
+	caPool := x509.NewCertPool()
+	caPool.AddCert(ca.cert)
+
+	serverTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject:      pkix.Name{CommonName: "server.test"},
+		DNSNames:     []string{"localhost", "127.0.0.1"},
+		NotBefore:    time.Now().Add(-time.Minute),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	serverBundle := generateTestCert(t, ca, serverTemplate)
+	serverTLSCert, err := cryptotls.X509KeyPair(serverBundle.certPEM, serverBundle.keyPEM)
+	require.NoError(t, err, "server X509KeyPair")
+
+	clientTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(3),
+		Subject:      pkix.Name{CommonName: "client.test"},
+		DNSNames:     []string{"client.test"},
+		NotBefore:    time.Now().Add(-time.Minute),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+	clientBundle := generateTestCert(t, ca, clientTemplate)
+	clientTLSCert, err := cryptotls.X509KeyPair(clientBundle.certPEM, clientBundle.keyPEM)
+	require.NoError(t, err, "client X509KeyPair")
+
+	serverCfg := &cryptotls.Config{
+		Certificates: []cryptotls.Certificate{serverTLSCert},
+		ClientAuth:   cryptotls.RequireAndVerifyClientCert,
+		ClientCAs:    caPool,
+	}
+	clientCfg := &cryptotls.Config{
+		Certificates: []cryptotls.Certificate{clientTLSCert},
+		RootCAs:      caPool,
+		ServerName:   "localhost",
+	}
+
+	return &tlsConfigPair{
+		server:     serverCfg,
+		client:     clientCfg,
+		clientCert: clientBundle.cert,
+	}
+}
+
+// tlsPair holds the state for a full TCP→TLS→NETCONF stack pair.
+type tlsPair struct {
+	cli        *client.Client
+	srv        *server.Server
+	serverSess *netconf.Session
+	listener   *nctls.Listener
+}
+
+// newTLSPair builds a full TCP→TLS→NETCONF loopback and returns a tlsPair.
+// caps is applied to both the client and server session. sessionID is assigned
+// to the server-side NETCONF session.
+func newTLSPair(t *testing.T, caps netconf.CapabilitySet, sessionID uint32) *tlsPair {
+	t.Helper()
+
+	cfgs := testTLSConfigs(t)
+
+	nl, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err, "listen on loopback")
+
+	listener := nctls.NewListener(nl, cfgs.server)
+	t.Cleanup(func() { listener.Close() })
+
+	type srvResult struct {
+		sess *netconf.Session
+		trp  *nctls.ServerTransport
+		err  error
+	}
+	srvCh := make(chan srvResult, 1)
+	go func() {
+		trp, err := listener.Accept()
+		if err != nil {
+			srvCh <- srvResult{err: err}
+			return
+		}
+		sess, err := netconf.ServerSession(trp, caps, sessionID)
+		srvCh <- srvResult{sess: sess, trp: trp, err: err}
+	}()
+
+	addr := nl.Addr().String()
+	ctx := context.Background()
+	cli, err := client.DialTLS(ctx, addr, cfgs.client, caps)
+	require.NoError(t, err, "DialTLS")
+	t.Cleanup(func() { cli.Close() })
+
+	sr := <-srvCh
+	require.NoError(t, sr.err, "ServerSession over TLS")
+	t.Cleanup(func() { sr.trp.Close() })
+
+	return &tlsPair{
+		cli:        cli,
+		srv:        server.NewServer(),
+		serverSess: sr.sess,
+		listener:   listener,
+	}
+}
+
+// startServe starts p.srv.Serve in a goroutine.
+func (p *tlsPair) startServe(ctx context.Context) chan error {
 	ch := make(chan error, 1)
 	go func() { ch <- p.srv.Serve(ctx, p.serverSess) }()
 	return ch
@@ -1198,5 +1395,201 @@ func TestConformance_PartialUnlock(t *testing.T) {
 
 	require.NoError(t, p.cli.CloseSession(ctx))
 	waitServe(t, serveDone)
+}
+
+// ── TestConformance_TLSTransport ──────────────────────────────────────────────
+
+// TestConformance_TLSTransport proves the full TCP→TLS→NETCONF stack:
+// mutual X.509 authentication, chunked framing negotiation, GetConfig, and
+// CloseSession via client.Client.  Mirrors TestConformance_SSHTransport but
+// uses TLS instead of SSH.
+func TestConformance_TLSTransport(t *testing.T) {
+	ctx := context.Background()
+	p := newTLSPair(t, caps11, 200)
+
+	// Verify chunked framing was negotiated over TLS.
+	assert.Equal(t, netconf.FramingChunked, p.serverSess.FramingMode(),
+		"TLS pair with base:1.1 must negotiate chunked framing")
+
+	p.srv.RegisterHandler("get-config", server.HandlerFunc(
+		func(_ context.Context, _ *netconf.Session, _ *netconf.RPC) ([]byte, error) {
+			return []byte(dataBody), nil
+		},
+	))
+	serveDone := p.startServe(ctx)
+
+	dr, err := p.cli.GetConfig(ctx, netconf.Datastore{Running: &struct{}{}}, nil)
+	require.NoError(t, err, "GetConfig over TLS must succeed")
+	require.NotNil(t, dr, "DataReply over TLS must not be nil")
+	assert.Contains(t, string(dr.Content), "config",
+		"DataReply must contain the handler-supplied data")
+
+	require.NoError(t, p.cli.CloseSession(ctx), "CloseSession over TLS must succeed")
+
+	select {
+	case err := <-serveDone:
+		require.NoError(t, err, "Serve must return nil after CloseSession over TLS")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Serve did not return after CloseSession over TLS")
+	}
+}
+
+// ── TestConformance_NotificationsOverTLS ─────────────────────────────────────
+
+// TestConformance_NotificationsOverTLS proves that notifications and concurrent
+// RPCs work correctly over a TLS-connected session (S01 + S02 cross-feature).
+//
+// Send-side race avoidance (D037, P015): all 3 notifications are sent after the
+// create-subscription handler signals readiness (subscribedCh closed) but
+// before the GetConfig RPC is issued. During this window, Serve is blocked in
+// sess.Recv() and does not call sess.Send, so there is no concurrent write race
+// on the server session.
+func TestConformance_NotificationsOverTLS(t *testing.T) {
+	ctx := context.Background()
+	tlsNotifCaps := netconf.NewCapabilitySet([]string{
+		netconf.BaseCap10,
+		netconf.BaseCap11,
+		netconf.CapabilityNotification,
+		netconf.CapabilityInterleave,
+	})
+	p := newTLSPair(t, tlsNotifCaps, 201)
+
+	subscribedCh := make(chan struct{})
+
+	p.srv.RegisterHandler("create-subscription", server.HandlerFunc(
+		func(_ context.Context, _ *netconf.Session, _ *netconf.RPC) ([]byte, error) {
+			close(subscribedCh)
+			return nil, nil // nil, nil → <ok/>
+		},
+	))
+	p.srv.RegisterHandler("get-config", server.HandlerFunc(
+		func(_ context.Context, _ *netconf.Session, _ *netconf.RPC) ([]byte, error) {
+			return []byte(dataBody), nil
+		},
+	))
+	serveDone := p.startServe(ctx)
+
+	// Subscribe and obtain the notification channel.
+	notifCh, err := p.cli.Subscribe(ctx, netconf.CreateSubscription{})
+	require.NoError(t, err, "Subscribe over TLS must succeed")
+	require.NotNil(t, notifCh, "Subscribe must return a non-nil channel")
+
+	// Wait for the create-subscription handler to signal, then send 3 notifications.
+	// Serve is blocked in sess.Recv() at this point — no concurrent sess.Send.
+	select {
+	case <-subscribedCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("create-subscription handler did not signal within 2s")
+	}
+
+	const numNotifs = 3
+	for i := range numNotifs {
+		n := &netconf.Notification{
+			EventTime: fmt.Sprintf("2026-03-01T00:00:0%dZ", i),
+			Body:      []byte(fmt.Sprintf(`<tls-event seq="%d"/>`, i)),
+		}
+		require.NoError(t, server.SendNotification(p.serverSess, n),
+			"SendNotification %d must succeed over TLS", i)
+	}
+
+	// Drain all 3 notifications from the client channel.
+	received := make([]*netconf.Notification, 0, numNotifs)
+	timeout := time.After(5 * time.Second)
+	for len(received) < numNotifs {
+		select {
+		case n, open := <-notifCh:
+			if !open {
+				t.Fatalf("notification channel closed before all notifications arrived (got %d/%d)", len(received), numNotifs)
+			}
+			received = append(received, n)
+		case <-timeout:
+			t.Fatalf("timeout waiting for notifications over TLS: got %d/%d", len(received), numNotifs)
+		}
+	}
+
+	// Assert all 3 notifications arrived in order with correct content.
+	require.Len(t, received, numNotifs, "all %d notifications must arrive over TLS", numNotifs)
+	for i, n := range received {
+		expectedTime := fmt.Sprintf("2026-03-01T00:00:0%dZ", i)
+		assert.Equal(t, expectedTime, n.EventTime, "notification %d EventTime must match", i)
+		assert.Contains(t, string(n.Body), fmt.Sprintf("seq=\"%d\"", i),
+			"notification %d Body must contain seq attribute", i)
+	}
+
+	// Prove interleave: execute 1 GetConfig RPC concurrently with the session.
+	dr, err := p.cli.GetConfig(ctx, netconf.Datastore{Running: &struct{}{}}, nil)
+	require.NoError(t, err, "GetConfig over TLS after notifications must succeed")
+	require.NotNil(t, dr, "GetConfig must return a DataReply")
+	assert.Contains(t, string(dr.Content), "config",
+		"DataReply content must contain 'config'")
+
+	require.NoError(t, p.cli.CloseSession(ctx), "CloseSession must succeed")
+	waitServe(t, serveDone)
+}
+
+// ── TestConformance_CapabilityAdvertisement ───────────────────────────────────
+
+// TestConformance_CapabilityAdvertisement proves that all four M002 extension
+// capability constants are visible in the client's RemoteCapabilities after a
+// hello exchange with a server that advertises them all.
+//
+// Uses raw sessions (not client.Client) so RemoteCapabilities is directly
+// accessible on the *netconf.Session — same approach as
+// TestConformance_CapabilityNegotiation.
+func TestConformance_CapabilityAdvertisement(t *testing.T) {
+	// Server advertises all M002 extension capabilities.
+	serverCaps := netconf.NewCapabilitySet([]string{
+		netconf.BaseCap10,
+		netconf.BaseCap11,
+		netconf.CapabilityNotification,
+		netconf.CapabilityInterleave,
+		netconf.CapabilityWithDefaults,
+		netconf.CapabilityPartialLock,
+	})
+	// Client advertises only base capabilities — we're testing what the
+	// server sends, not what the client sends.
+	clientCaps := netconf.NewCapabilitySet([]string{
+		netconf.BaseCap10,
+		netconf.BaseCap11,
+	})
+
+	clientT, serverT := transport.NewLoopback()
+	t.Cleanup(func() {
+		clientT.Close()
+		serverT.Close()
+	})
+
+	type sessResult struct {
+		sess *netconf.Session
+		err  error
+	}
+	cliCh := make(chan sessResult, 1)
+	srvCh := make(chan sessResult, 1)
+
+	go func() {
+		s, err := netconf.ClientSession(clientT, clientCaps)
+		cliCh <- sessResult{s, err}
+	}()
+	go func() {
+		s, err := netconf.ServerSession(serverT, serverCaps, 202)
+		srvCh <- sessResult{s, err}
+	}()
+
+	cliRes := <-cliCh
+	srvRes := <-srvCh
+	require.NoError(t, cliRes.err, "ClientSession must succeed")
+	require.NoError(t, srvRes.err, "ServerSession must succeed")
+
+	// The client's RemoteCapabilities reflects what the server advertised.
+	remoteCaps := cliRes.sess.RemoteCapabilities()
+
+	assert.True(t, remoteCaps.Contains(netconf.CapabilityNotification),
+		"client must see CapabilityNotification in RemoteCapabilities")
+	assert.True(t, remoteCaps.Contains(netconf.CapabilityInterleave),
+		"client must see CapabilityInterleave in RemoteCapabilities")
+	assert.True(t, remoteCaps.Contains(netconf.CapabilityWithDefaults),
+		"client must see CapabilityWithDefaults in RemoteCapabilities")
+	assert.True(t, remoteCaps.Contains(netconf.CapabilityPartialLock),
+		"client must see CapabilityPartialLock in RemoteCapabilities")
 }
 
