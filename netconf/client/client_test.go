@@ -514,6 +514,15 @@ func echoServer(t *testing.T, serverT transport.Transport) {
 				MessageID: rpc.MessageID,
 				Body:      []byte(dataBody),
 			}
+		case "partial-lock":
+			reply = &netconf.RPCReply{
+				MessageID: rpc.MessageID,
+				Body: []byte(`<partial-lock-reply>` +
+					`<lock-id>1</lock-id>` +
+					`<locked-node>/interfaces</locked-node>` +
+					`<locked-node>/routing</locked-node>` +
+					`</partial-lock-reply>`),
+			}
 		default:
 			reply = &netconf.RPCReply{
 				MessageID: rpc.MessageID,
@@ -1188,4 +1197,32 @@ func TestClient_TLSLoopback(t *testing.T) {
 	// Clean teardown: CloseSession then Close.
 	require.NoError(t, cl.CloseSession(ctx), "CloseSession must succeed")
 	require.NoError(t, cl.Close(), "Close must succeed")
+}
+
+// ── Partial-lock / partial-unlock typed method tests ─────────────────────────
+
+// TestClient_PartialLock exercises PartialLock through the echo server.
+// The echo server returns a mock partial-lock-reply with lock-id=1 and two
+// locked-node entries.
+func TestClient_PartialLock(t *testing.T) {
+	c, serverT := newTestPair(t)
+	go echoServer(t, serverT)
+
+	reply, err := c.PartialLock(context.Background(), []string{"/interfaces", "/routing"})
+	require.NoError(t, err, "PartialLock must succeed")
+	require.NotNil(t, reply, "PartialLockReply must not be nil")
+	assert.Equal(t, uint32(1), reply.LockID,
+		"PartialLockReply.LockID must equal the server-returned lock-id 1")
+	assert.Len(t, reply.LockedNode, 2,
+		"PartialLockReply must contain exactly 2 locked-node entries")
+}
+
+// TestClient_PartialUnlock exercises PartialUnlock through the echo server.
+// The echo server returns a plain <ok/> for partial-unlock (default branch).
+func TestClient_PartialUnlock(t *testing.T) {
+	c, serverT := newTestPair(t)
+	go echoServer(t, serverT)
+
+	require.NoError(t, c.PartialUnlock(context.Background(), 1),
+		"PartialUnlock must succeed when server replies with <ok/>")
 }

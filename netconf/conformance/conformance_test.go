@@ -1016,3 +1016,187 @@ func bytesContains(b []byte, s string) bool {
 // _ forces the import used only in the above helper to be recognised by the
 // compiler. bytes is imported and used in bytesContains above.
 var _ = bytesContains
+
+// ── TestConformance_WithDefaults_GetConfig ────────────────────────────────────
+
+// TestConformance_WithDefaults_GetConfig proves that a GetConfig with
+// WithDefaults set to report-all emits the with-defaults parameter in the
+// wire XML that the server handler receives.
+//
+// This closes the with-defaults round-trip proof from T01 unit tests by
+// exercising the full client→server stack (not just xml.Marshal).
+func TestConformance_WithDefaults_GetConfig(t *testing.T) {
+	ctx := context.Background()
+	p := newLoopbackPair(t, caps10, caps10, 100)
+
+	var (
+		mu           sync.Mutex
+		capturedBody []byte
+	)
+	p.srv.RegisterHandler("get-config", server.HandlerFunc(
+		func(_ context.Context, _ *netconf.Session, rpc *netconf.RPC) ([]byte, error) {
+			mu.Lock()
+			capturedBody = append([]byte{}, rpc.Body...)
+			mu.Unlock()
+			return []byte(dataBody), nil
+		},
+	))
+	serveDone := p.startServe(ctx)
+
+	running := netconf.Datastore{Running: &struct{}{}}
+	dr, err := p.cli.Do(ctx, &netconf.GetConfig{
+		Source:       running,
+		WithDefaults: &netconf.WithDefaultsParam{Mode: netconf.WithDefaultsReportAll},
+	})
+	require.NoError(t, err, "GetConfig with WithDefaults must succeed")
+	require.NotNil(t, dr, "reply must not be nil")
+
+	mu.Lock()
+	body := string(capturedBody)
+	mu.Unlock()
+
+	assert.Contains(t, body, "with-defaults",
+		"server-side RPC body must contain with-defaults element; body: %s", body)
+	assert.Contains(t, body, "report-all",
+		"server-side RPC body must contain the report-all mode value; body: %s", body)
+	assert.Contains(t, body, "ietf-netconf-with-defaults",
+		"server-side RPC body must carry the RFC 6243 YANG namespace; body: %s", body)
+
+	require.NoError(t, p.cli.CloseSession(ctx))
+	waitServe(t, serveDone)
+}
+
+// ── TestConformance_WithDefaults_BackwardCompat ───────────────────────────────
+
+// TestConformance_WithDefaults_BackwardCompat proves that GetConfig with a nil
+// WithDefaults field emits NO with-defaults element on the wire — existing
+// callers are unaffected by the new field.
+func TestConformance_WithDefaults_BackwardCompat(t *testing.T) {
+	ctx := context.Background()
+	p := newLoopbackPair(t, caps10, caps10, 101)
+
+	var (
+		mu           sync.Mutex
+		capturedBody []byte
+	)
+	p.srv.RegisterHandler("get-config", server.HandlerFunc(
+		func(_ context.Context, _ *netconf.Session, rpc *netconf.RPC) ([]byte, error) {
+			mu.Lock()
+			capturedBody = append([]byte{}, rpc.Body...)
+			mu.Unlock()
+			return []byte(dataBody), nil
+		},
+	))
+	serveDone := p.startServe(ctx)
+
+	running := netconf.Datastore{Running: &struct{}{}}
+	// Use the typed GetConfig method with nil WithDefaults (the pre-existing signature).
+	dr, err := p.cli.GetConfig(ctx, running, nil)
+	require.NoError(t, err, "GetConfig with nil WithDefaults must succeed")
+	require.NotNil(t, dr, "DataReply must not be nil")
+
+	mu.Lock()
+	body := string(capturedBody)
+	mu.Unlock()
+
+	assert.NotContains(t, body, "with-defaults",
+		"RPC body must NOT contain with-defaults when field is nil; body: %s", body)
+	assert.NotContains(t, body, "ietf-netconf-with-defaults",
+		"RPC body must NOT carry the with-defaults namespace when field is nil; body: %s", body)
+
+	require.NoError(t, p.cli.CloseSession(ctx))
+	waitServe(t, serveDone)
+}
+
+// ── TestConformance_PartialLock ───────────────────────────────────────────────
+
+// TestConformance_PartialLock proves the full partial-lock round-trip:
+// (a) the wire RPC body contains the <select> elements;
+// (b) the client correctly unmarshals lock-id and locked-node from the reply.
+func TestConformance_PartialLock(t *testing.T) {
+	ctx := context.Background()
+	p := newLoopbackPair(t, caps10, caps10, 102)
+
+	var (
+		mu           sync.Mutex
+		capturedBody []byte
+	)
+	p.srv.RegisterHandler("partial-lock", server.HandlerFunc(
+		func(_ context.Context, _ *netconf.Session, rpc *netconf.RPC) ([]byte, error) {
+			mu.Lock()
+			capturedBody = append([]byte{}, rpc.Body...)
+			mu.Unlock()
+			// Return a partial-lock-reply with lock-id=7 and one locked node.
+			return []byte(`<partial-lock-reply>` +
+				`<lock-id>7</lock-id>` +
+				`<locked-node>/interfaces</locked-node>` +
+				`</partial-lock-reply>`), nil
+		},
+	))
+	serveDone := p.startServe(ctx)
+
+	reply, err := p.cli.PartialLock(ctx, []string{"/interfaces"})
+	require.NoError(t, err, "PartialLock must succeed")
+	require.NotNil(t, reply, "PartialLockReply must not be nil")
+
+	// Verify round-trip: lock-id and locked-node decoded correctly.
+	assert.Equal(t, uint32(7), reply.LockID,
+		"PartialLockReply.LockID must be 7 (as returned by the handler)")
+	require.Len(t, reply.LockedNode, 1,
+		"PartialLockReply must contain exactly 1 locked-node")
+	assert.Equal(t, "/interfaces", reply.LockedNode[0],
+		"locked-node[0] must equal /interfaces")
+
+	// Verify wire format: server handler received <select> elements.
+	mu.Lock()
+	body := string(capturedBody)
+	mu.Unlock()
+
+	assert.Contains(t, body, "<select>",
+		"partial-lock RPC body must contain <select> element; body: %s", body)
+	assert.Contains(t, body, "/interfaces",
+		"partial-lock RPC body must contain the XPath expression; body: %s", body)
+
+	require.NoError(t, p.cli.CloseSession(ctx))
+	waitServe(t, serveDone)
+}
+
+// ── TestConformance_PartialUnlock ─────────────────────────────────────────────
+
+// TestConformance_PartialUnlock proves the full partial-unlock round-trip:
+// the wire RPC body contains the <lock-id> element with the correct value,
+// and the client receives a clean nil error for the <ok/> reply.
+func TestConformance_PartialUnlock(t *testing.T) {
+	ctx := context.Background()
+	p := newLoopbackPair(t, caps10, caps10, 103)
+
+	var (
+		mu           sync.Mutex
+		capturedBody []byte
+	)
+	p.srv.RegisterHandler("partial-unlock", server.HandlerFunc(
+		func(_ context.Context, _ *netconf.Session, rpc *netconf.RPC) ([]byte, error) {
+			mu.Lock()
+			capturedBody = append([]byte{}, rpc.Body...)
+			mu.Unlock()
+			// Return nil to let the server send <ok/>.
+			return nil, nil
+		},
+	))
+	serveDone := p.startServe(ctx)
+
+	err := p.cli.PartialUnlock(ctx, 7)
+	require.NoError(t, err, "PartialUnlock must succeed when server replies with <ok/>")
+
+	// Verify wire format: server handler received <lock-id>7</lock-id>.
+	mu.Lock()
+	body := string(capturedBody)
+	mu.Unlock()
+
+	assert.Contains(t, body, "<lock-id>7</lock-id>",
+		"partial-unlock RPC body must contain <lock-id>7</lock-id>; body: %s", body)
+
+	require.NoError(t, p.cli.CloseSession(ctx))
+	waitServe(t, serveDone)
+}
+

@@ -458,6 +458,61 @@ func (c *Client) Commit(ctx context.Context, opts *netconf.Commit) error {
 	return checkReply(reply)
 }
 
+// PartialLock locks a subset of the configuration identified by XPath select
+// expressions (RFC 5717 §2.1). Requires CapabilityPartialLock.
+//
+// selects is a list of XPath 1.0 expressions that identify the configuration
+// nodes to lock. On success, the device returns a lock-id and the list of
+// locked node canonical XPath expressions.
+//
+// # Observability Impact
+//
+// Errors include "client: PartialLock:" prefix, so log lines identify the
+// operation. A server-side <rpc-error> propagates as netconf.RPCError via
+// errors.As, carrying Tag, Type, Severity, and Message fields. An XML decode
+// failure on the reply body surfaces as a wrapped "decode PartialLockReply"
+// error distinguishable from RPC-level errors. Inspection:
+//
+//	go test ./netconf/client/... -run TestClient_PartialLock -v
+//	go test ./netconf/conformance/... -run TestConformance_PartialLock -v
+func (c *Client) PartialLock(ctx context.Context, selects []string) (*netconf.PartialLockReply, error) {
+	reply, err := c.Do(ctx, &netconf.PartialLock{Select: selects})
+	if err != nil {
+		return nil, fmt.Errorf("client: PartialLock: %w", err)
+	}
+	if err := checkReply(reply); err != nil {
+		return nil, fmt.Errorf("client: PartialLock: %w", err)
+	}
+	var plr netconf.PartialLockReply
+	if err := xml.Unmarshal(reply.Body, &plr); err != nil {
+		return nil, fmt.Errorf("client: PartialLock: decode PartialLockReply: %w", err)
+	}
+	return &plr, nil
+}
+
+// PartialUnlock releases a partial lock previously acquired via PartialLock
+// (RFC 5717 §2.2). Requires CapabilityPartialLock.
+//
+// lockID must be the lock-id returned by the successful PartialLock call.
+//
+// # Observability Impact
+//
+// Errors include "client: PartialUnlock:" prefix. Server-side <rpc-error>
+// propagates as netconf.RPCError via errors.As. Inspection:
+//
+//	go test ./netconf/client/... -run TestClient_PartialUnlock -v
+//	go test ./netconf/conformance/... -run TestConformance_PartialUnlock -v
+func (c *Client) PartialUnlock(ctx context.Context, lockID uint32) error {
+	reply, err := c.Do(ctx, &netconf.PartialUnlock{LockID: lockID})
+	if err != nil {
+		return fmt.Errorf("client: PartialUnlock: %w", err)
+	}
+	if err := checkReply(reply); err != nil {
+		return fmt.Errorf("client: PartialUnlock: %w", err)
+	}
+	return nil
+}
+
 // DiscardChanges reverts the candidate to the running configuration (RFC 6241 §8.3.4).
 // Requires CapabilityCandidate.
 func (c *Client) DiscardChanges(ctx context.Context) error {
