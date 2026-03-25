@@ -51,6 +51,7 @@ import (
 	"sync/atomic"
 
 	netconf "github.com/GabrielNunesIT/netconf/netconf"
+	"github.com/GabrielNunesIT/netconf/netconf/monitoring"
 	nctls "github.com/GabrielNunesIT/netconf/netconf/transport/tls"
 	ncssh "github.com/GabrielNunesIT/netconf/netconf/transport/ssh"
 	gossh "golang.org/x/crypto/ssh"
@@ -511,6 +512,41 @@ func (c *Client) PartialUnlock(ctx context.Context, lockID uint32) error {
 		return fmt.Errorf("client: PartialUnlock: %w", err)
 	}
 	return nil
+}
+
+// GetSchema retrieves a schema document via the get-schema RPC (RFC 6022 §3).
+//
+// The server must advertise the ietf-netconf-monitoring capability
+// (monitoring.CapabilityURI) in its hello. req identifies the schema by
+// Identifier (required), Version (optional), and Format (optional; e.g. "yang").
+//
+// On success, the raw schema bytes (YANG text, YIN XML, or XSD) are returned.
+// The returned []byte is the innerxml content of the <data> element in the
+// server's rpc-reply — typically a YANG module or XSD document.
+//
+// # Observability Impact
+//
+// Errors include the "client: GetSchema:" prefix, so log lines identify the
+// operation. A server-side <rpc-error> propagates as netconf.RPCError via
+// errors.As, carrying Tag, Type, Severity, and Message fields. An XML decode
+// failure on the <data> body surfaces as a wrapped
+// "client: GetSchema: decode GetSchemaReply:" error, distinguishable from
+// RPC-level errors. Inspection:
+//
+//	go test ./netconf/client/... -run TestClient_GetSchema -v
+func (c *Client) GetSchema(ctx context.Context, req *monitoring.GetSchemaRequest) ([]byte, error) {
+	reply, err := c.Do(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("client: GetSchema: %w", err)
+	}
+	if err := checkReply(reply); err != nil {
+		return nil, fmt.Errorf("client: GetSchema: %w", err)
+	}
+	var gsr monitoring.GetSchemaReply
+	if err := xml.Unmarshal(reply.Body, &gsr); err != nil {
+		return nil, fmt.Errorf("client: GetSchema: decode GetSchemaReply: %w", err)
+	}
+	return gsr.Content, nil
 }
 
 // DiscardChanges reverts the candidate to the running configuration (RFC 6241 §8.3.4).

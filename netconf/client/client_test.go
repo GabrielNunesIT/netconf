@@ -19,6 +19,7 @@ import (
 
 	netconf "github.com/GabrielNunesIT/netconf/netconf"
 	"github.com/GabrielNunesIT/netconf/netconf/client"
+	"github.com/GabrielNunesIT/netconf/netconf/monitoring"
 	"github.com/GabrielNunesIT/netconf/netconf/transport"
 	ncssh "github.com/GabrielNunesIT/netconf/netconf/transport/ssh"
 	nctls "github.com/GabrielNunesIT/netconf/netconf/transport/tls"
@@ -522,6 +523,11 @@ func echoServer(t *testing.T, serverT transport.Transport) {
 					`<locked-node>/interfaces</locked-node>` +
 					`<locked-node>/routing</locked-node>` +
 					`</partial-lock-reply>`),
+			}
+		case "get-schema":
+			reply = &netconf.RPCReply{
+				MessageID: rpc.MessageID,
+				Body:      []byte(`<data>module ietf-interfaces { yang-version 1.1; }</data>`),
 			}
 		default:
 			reply = &netconf.RPCReply{
@@ -1225,4 +1231,57 @@ func TestClient_PartialUnlock(t *testing.T) {
 
 	require.NoError(t, c.PartialUnlock(context.Background(), 1),
 		"PartialUnlock must succeed when server replies with <ok/>")
+}
+
+// ── GetSchema typed method tests ──────────────────────────────────────────────
+
+// TestClient_GetSchema exercises GetSchema end-to-end through the echo server.
+// The echo server returns a <data> element with a minimal YANG schema when it
+// receives a get-schema RPC.
+func TestClient_GetSchema(t *testing.T) {
+	c, serverT := newTestPair(t)
+	go echoServer(t, serverT)
+
+	req := &monitoring.GetSchemaRequest{
+		Identifier: "ietf-interfaces",
+		Version:    "2018-02-20",
+		Format:     "yang",
+	}
+	content, err := c.GetSchema(context.Background(), req)
+	require.NoError(t, err, "GetSchema must succeed")
+	require.NotNil(t, content, "returned content must not be nil")
+	assert.Contains(t, string(content), "ietf-interfaces",
+		"returned content must contain the schema identifier text")
+}
+
+// TestClient_GetSchema_MinimalRequest verifies that GetSchema works with only
+// the Identifier set (Version and Format omitted).
+func TestClient_GetSchema_MinimalRequest(t *testing.T) {
+	c, serverT := newTestPair(t)
+	go echoServer(t, serverT)
+
+	req := &monitoring.GetSchemaRequest{Identifier: "ietf-interfaces"}
+	content, err := c.GetSchema(context.Background(), req)
+	require.NoError(t, err, "GetSchema with minimal request must succeed")
+	assert.NotEmpty(t, content, "returned content must not be empty")
+}
+
+// TestClient_GetSchema_RPCError verifies that a server-side <rpc-error> on a
+// GetSchema call surfaces with the "client: GetSchema:" prefix in the error
+// string, and is extractable via errors.As.
+func TestClient_GetSchema_RPCError(t *testing.T) {
+	c, serverT := newTestPair(t)
+	go echoServerWithError(t, serverT)
+
+	req := &monitoring.GetSchemaRequest{Identifier: "missing-schema"}
+	_, err := c.GetSchema(context.Background(), req)
+	require.Error(t, err, "GetSchema must return an error when server replies with rpc-error")
+	assert.Contains(t, err.Error(), "client: GetSchema:",
+		"error must carry the client: GetSchema: prefix")
+
+	var rpcErr netconf.RPCError
+	require.True(t, errors.As(err, &rpcErr),
+		"error must be or wrap a netconf.RPCError; got: %v", err)
+	assert.Equal(t, "invalid-value", rpcErr.Tag,
+		"RPCError.Tag must be extracted from the server reply")
 }
