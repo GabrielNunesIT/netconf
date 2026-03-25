@@ -79,6 +79,21 @@ const (
 	CapabilityWritableRunning Capability = "urn:ietf:params:netconf:capability:writable-running:1.0"
 )
 
+// Extended capability constants for with-defaults (RFC 6243) and partial-lock (RFC 5717).
+const (
+	// CapabilityWithDefaults is the :with-defaults capability (RFC 6243 §4).
+	// When present, the device supports the with-defaults parameter on <get>,
+	// <get-config>, and <copy-config> operations to control how default values
+	// are included in returned configuration data.
+	CapabilityWithDefaults Capability = "urn:ietf:params:netconf:capability:with-defaults:1.0"
+
+	// CapabilityPartialLock is the :partial-lock capability (RFC 5717 §2.4).
+	// When present, the device supports locking selected portions of the
+	// configuration datastore using XPath select expressions via the
+	// <partial-lock> and <partial-unlock> operations.
+	CapabilityPartialLock Capability = "urn:ietf:params:netconf:capability:partial-lock:1.0"
+)
+
 // urnRE matches the two IANA-registered NETCONF URN forms:
 //
 //	urn:ietf:params:netconf:base:<version>

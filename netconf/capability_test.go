@@ -261,3 +261,41 @@ func TestCapabilitySet_ContainsNotificationCaps(t *testing.T) {
 	assert.True(t, cs.Contains(netconf.CapabilityInterleave),
 		"CapabilitySet must contain CapabilityInterleave")
 }
+
+// ── RFC 6243 with-defaults capability constant ────────────────────────────────
+
+// TestCapability_WithDefaults_ValidURN verifies that CapabilityWithDefaults passes
+// ValidateURN (RFC 7803 format compliance).
+func TestCapability_WithDefaults_ValidURN(t *testing.T) {
+	err := netconf.ValidateURN(netconf.CapabilityWithDefaults)
+	require.NoError(t, err, "CapabilityWithDefaults must pass ValidateURN")
+}
+
+// TestCapability_WithDefaults_ExactValue verifies the exact URN string for
+// CapabilityWithDefaults matches RFC 6243 §4.
+func TestCapability_WithDefaults_ExactValue(t *testing.T) {
+	assert.Equal(t,
+		"urn:ietf:params:netconf:capability:with-defaults:1.0",
+		netconf.CapabilityWithDefaults,
+		"CapabilityWithDefaults must match RFC 6243 §4 URN exactly",
+	)
+}
+
+// ── RFC 5717 partial-lock capability constant ─────────────────────────────────
+
+// TestCapability_PartialLock_ValidURN verifies that CapabilityPartialLock passes
+// ValidateURN (RFC 7803 format compliance).
+func TestCapability_PartialLock_ValidURN(t *testing.T) {
+	err := netconf.ValidateURN(netconf.CapabilityPartialLock)
+	require.NoError(t, err, "CapabilityPartialLock must pass ValidateURN")
+}
+
+// TestCapability_PartialLock_ExactValue verifies the exact URN string for
+// CapabilityPartialLock matches RFC 5717 §2.4.
+func TestCapability_PartialLock_ExactValue(t *testing.T) {
+	assert.Equal(t,
+		"urn:ietf:params:netconf:capability:partial-lock:1.0",
+		netconf.CapabilityPartialLock,
+		"CapabilityPartialLock must match RFC 5717 §2.4 URN exactly",
+	)
+}

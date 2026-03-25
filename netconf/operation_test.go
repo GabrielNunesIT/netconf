@@ -685,3 +685,224 @@ func TestAllOperations_ElementNames(t *testing.T) {
 		})
 	}
 }
+
+// ── Backward-compatibility proof: WithDefaults nil produces unchanged XML ─────
+
+// TestGet_BackwardCompat_NilWithDefaults proves that Get{} with a nil WithDefaults
+// field produces XML identical to the pre-change struct (no with-defaults element,
+// no extra namespace declarations). This is the key R034 backward-compat assertion.
+func TestGet_BackwardCompat_NilWithDefaults(t *testing.T) {
+	op := netconf.Get{}
+	xmlStr := mustMarshal(t, op)
+
+	assert.NotContains(t, xmlStr, "with-defaults",
+		"nil WithDefaults must not emit <with-defaults> element")
+	assert.NotContains(t, xmlStr, "ietf-netconf-with-defaults",
+		"nil WithDefaults must not introduce with-defaults namespace")
+	assertNSPresent(t, xmlStr, "get")
+}
+
+// TestGetConfig_BackwardCompat_NilWithDefaults proves that GetConfig with Source set
+// but nil WithDefaults produces XML identical to the pre-change struct.
+func TestGetConfig_BackwardCompat_NilWithDefaults(t *testing.T) {
+	op := netconf.GetConfig{Source: netconf.Datastore{Running: &struct{}{}}}
+	xmlStr := mustMarshal(t, op)
+
+	assert.NotContains(t, xmlStr, "with-defaults",
+		"nil WithDefaults must not emit <with-defaults> element")
+	assert.NotContains(t, xmlStr, "ietf-netconf-with-defaults",
+		"nil WithDefaults must not introduce with-defaults namespace")
+	assertNSPresent(t, xmlStr, "get-config")
+	assert.Contains(t, xmlStr, "<running>", "source datastore must still be present")
+}
+
+// TestCopyConfig_BackwardCompat_NilWithDefaults proves that CopyConfig with nil
+// WithDefaults produces XML identical to the pre-change struct.
+func TestCopyConfig_BackwardCompat_NilWithDefaults(t *testing.T) {
+	op := netconf.CopyConfig{
+		Source: netconf.Datastore{Candidate: &struct{}{}},
+		Target: netconf.Datastore{Running: &struct{}{}},
+	}
+	xmlStr := mustMarshal(t, op)
+
+	assert.NotContains(t, xmlStr, "with-defaults",
+		"nil WithDefaults must not emit <with-defaults> element")
+	assert.NotContains(t, xmlStr, "ietf-netconf-with-defaults",
+		"nil WithDefaults must not introduce with-defaults namespace")
+	assertNSPresent(t, xmlStr, "copy-config")
+	assert.Contains(t, xmlStr, "<candidate>", "source candidate must still be present")
+	assert.Contains(t, xmlStr, "<running>", "target running must still be present")
+}
+
+// ── with-defaults round-trip tests ───────────────────────────────────────────
+
+// TestGet_WithDefaults_RoundTrip verifies that Get with WithDefaults set marshals
+// the with-defaults element with the correct namespace and value, and that
+// unmarshaling recovers the same mode.
+func TestGet_WithDefaults_RoundTrip(t *testing.T) {
+	orig := netconf.Get{
+		WithDefaults: &netconf.WithDefaultsParam{Mode: netconf.WithDefaultsReportAll},
+	}
+	xmlStr := mustMarshal(t, orig)
+
+	assert.Contains(t, xmlStr,
+		`xmlns="urn:ietf:params:xml:ns:yang:ietf-netconf-with-defaults"`,
+		"with-defaults element must carry the RFC 6243 YANG namespace")
+	assert.Contains(t, xmlStr, "report-all",
+		"with-defaults mode value must be present")
+	assert.Contains(t, xmlStr, "with-defaults",
+		"with-defaults element name must be present")
+
+	var got netconf.Get
+	require.NoError(t, xml.Unmarshal([]byte(xmlStr), &got))
+	require.NotNil(t, got.WithDefaults, "WithDefaults must survive round-trip")
+	assert.Equal(t, netconf.WithDefaultsReportAll, got.WithDefaults.Mode,
+		"WithDefaultsMode must survive round-trip")
+}
+
+// TestGetConfig_WithDefaults_RoundTrip verifies GetConfig with WithDefaults set
+// round-trips with the correct namespace and mode value.
+func TestGetConfig_WithDefaults_RoundTrip(t *testing.T) {
+	orig := netconf.GetConfig{
+		Source:       netconf.Datastore{Running: &struct{}{}},
+		WithDefaults: &netconf.WithDefaultsParam{Mode: netconf.WithDefaultsTrim},
+	}
+	xmlStr := mustMarshal(t, orig)
+
+	assert.Contains(t, xmlStr,
+		`xmlns="urn:ietf:params:xml:ns:yang:ietf-netconf-with-defaults"`,
+		"with-defaults element must carry the RFC 6243 YANG namespace")
+	assert.Contains(t, xmlStr, "trim", "with-defaults mode value must be present")
+
+	var got netconf.GetConfig
+	require.NoError(t, xml.Unmarshal([]byte(xmlStr), &got))
+	require.NotNil(t, got.WithDefaults, "WithDefaults must survive round-trip")
+	assert.Equal(t, netconf.WithDefaultsTrim, got.WithDefaults.Mode)
+}
+
+// TestCopyConfig_WithDefaults_RoundTrip verifies CopyConfig with WithDefaults set
+// round-trips with the correct namespace and mode value.
+func TestCopyConfig_WithDefaults_RoundTrip(t *testing.T) {
+	orig := netconf.CopyConfig{
+		Source:       netconf.Datastore{Candidate: &struct{}{}},
+		Target:       netconf.Datastore{Running: &struct{}{}},
+		WithDefaults: &netconf.WithDefaultsParam{Mode: netconf.WithDefaultsExplicit},
+	}
+	xmlStr := mustMarshal(t, orig)
+
+	assert.Contains(t, xmlStr,
+		`xmlns="urn:ietf:params:xml:ns:yang:ietf-netconf-with-defaults"`,
+		"with-defaults element must carry the RFC 6243 YANG namespace")
+	assert.Contains(t, xmlStr, "explicit", "with-defaults mode value must be present")
+
+	var got netconf.CopyConfig
+	require.NoError(t, xml.Unmarshal([]byte(xmlStr), &got))
+	require.NotNil(t, got.WithDefaults, "WithDefaults must survive round-trip")
+	assert.Equal(t, netconf.WithDefaultsExplicit, got.WithDefaults.Mode)
+}
+
+// TestWithDefaultsMode_AllModes is a table-driven test verifying that all 4
+// with-defaults modes marshal to their RFC 6243 string values and unmarshal back
+// to the same typed constant.
+func TestWithDefaultsMode_AllModes(t *testing.T) {
+	cases := []struct {
+		mode    netconf.WithDefaultsMode
+		wantStr string
+	}{
+		{netconf.WithDefaultsReportAll, "report-all"},
+		{netconf.WithDefaultsTrim, "trim"},
+		{netconf.WithDefaultsExplicit, "explicit"},
+		{netconf.WithDefaultsReportAllTagged, "report-all-tagged"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.wantStr, func(t *testing.T) {
+			param := netconf.WithDefaultsParam{Mode: tc.mode}
+			data, err := xml.Marshal(param)
+			require.NoError(t, err)
+			xmlStr := string(data)
+
+			assert.Contains(t, xmlStr, tc.wantStr,
+				"mode string must appear in marshaled XML")
+			assert.Contains(t, xmlStr,
+				`xmlns="urn:ietf:params:xml:ns:yang:ietf-netconf-with-defaults"`,
+				"RFC 6243 namespace must be present for mode %s", tc.wantStr)
+
+			var got netconf.WithDefaultsParam
+			require.NoError(t, xml.Unmarshal(data, &got))
+			assert.Equal(t, tc.mode, got.Mode,
+				"mode must survive round-trip for %s", tc.wantStr)
+		})
+	}
+}
+
+// ── Partial-lock round-trip tests ─────────────────────────────────────────────
+
+// TestPartialLock_MarshalRoundTrip verifies that PartialLock with two XPath
+// select expressions marshals with the NETCONF base namespace, the correct element
+// name, and both select child elements, and that unmarshal recovers the same data.
+func TestPartialLock_MarshalRoundTrip(t *testing.T) {
+	orig := netconf.PartialLock{
+		Select: []string{
+			"/interfaces/interface[name='eth0']",
+			"/interfaces/interface[name='eth1']",
+		},
+	}
+	xmlStr := mustMarshal(t, orig)
+
+	assertNSPresent(t, xmlStr, "partial-lock")
+	assert.True(t,
+		strings.Contains(xmlStr, "<partial-lock ") ||
+			strings.Contains(xmlStr, "<partial-lock>"),
+		"root element must be <partial-lock>, got: %s", xmlStr)
+	assert.Contains(t, xmlStr, "eth0", "first select expression must be present")
+	assert.Contains(t, xmlStr, "eth1", "second select expression must be present")
+	assert.Contains(t, xmlStr, "<select>", "select must be a child element")
+
+	var got netconf.PartialLock
+	require.NoError(t, xml.Unmarshal([]byte(xmlStr), &got))
+	require.Len(t, got.Select, 2, "both select expressions must survive round-trip")
+	assert.Equal(t, orig.Select[0], got.Select[0], "first select must round-trip")
+	assert.Equal(t, orig.Select[1], got.Select[1], "second select must round-trip")
+}
+
+// TestPartialUnlock_MarshalRoundTrip verifies that PartialUnlock with lock-id 42
+// marshals with the NETCONF base namespace, the correct element name, and the
+// lock-id child element, and that unmarshal recovers the same lock-id.
+func TestPartialUnlock_MarshalRoundTrip(t *testing.T) {
+	orig := netconf.PartialUnlock{LockID: 42}
+	xmlStr := mustMarshal(t, orig)
+
+	assertNSPresent(t, xmlStr, "partial-unlock")
+	assert.True(t,
+		strings.Contains(xmlStr, "<partial-unlock ") ||
+			strings.Contains(xmlStr, "<partial-unlock>"),
+		"root element must be <partial-unlock>, got: %s", xmlStr)
+	assert.Contains(t, xmlStr, "42", "lock-id value must be present")
+	assert.Contains(t, xmlStr, "lock-id", "lock-id element must be present")
+
+	var got netconf.PartialUnlock
+	require.NoError(t, xml.Unmarshal([]byte(xmlStr), &got))
+	assert.Equal(t, uint32(42), got.LockID, "LockID must survive round-trip")
+}
+
+// TestPartialLockReply_Unmarshal verifies that a realistic <partial-lock-reply>
+// element (as returned by the device inside the <rpc-reply> body) deserializes
+// correctly into PartialLockReply.
+func TestPartialLockReply_Unmarshal(t *testing.T) {
+	replyXML := `<partial-lock-reply>` +
+		`<lock-id>17</lock-id>` +
+		`<locked-node>/interfaces/interface[name='eth0']</locked-node>` +
+		`<locked-node>/interfaces/interface[name='eth1']</locked-node>` +
+		`</partial-lock-reply>`
+
+	var got netconf.PartialLockReply
+	require.NoError(t, xml.Unmarshal([]byte(replyXML), &got),
+		"PartialLockReply must unmarshal from realistic reply body")
+
+	assert.Equal(t, uint32(17), got.LockID, "LockID must be parsed correctly")
+	require.Len(t, got.LockedNode, 2, "both locked-node entries must be parsed")
+	assert.Contains(t, got.LockedNode[0], "eth0",
+		"first locked-node must contain eth0 reference")
+	assert.Contains(t, got.LockedNode[1], "eth1",
+		"second locked-node must contain eth1 reference")
+}

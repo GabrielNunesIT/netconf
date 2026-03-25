@@ -65,21 +65,63 @@ type DataReply struct {
 	Content []byte   `xml:",innerxml"`
 }
 
+// ── RFC 6243 with-defaults ────────────────────────────────────────────────────
+
+// WithDefaultsNS is the XML namespace for the with-defaults parameter (RFC 6243 §4).
+const WithDefaultsNS = "urn:ietf:params:xml:ns:yang:ietf-netconf-with-defaults"
+
+// WithDefaultsMode is the mode value for the with-defaults parameter (RFC 6243 §3).
+// It controls which default values appear in the device's response.
+type WithDefaultsMode string
+
+const (
+	// WithDefaultsReportAll causes all default values to be reported (RFC 6243 §3.1).
+	WithDefaultsReportAll WithDefaultsMode = "report-all"
+
+	// WithDefaultsTrim causes default values to be omitted from the reply (RFC 6243 §3.2).
+	WithDefaultsTrim WithDefaultsMode = "trim"
+
+	// WithDefaultsExplicit causes only explicitly set values to be reported (RFC 6243 §3.3).
+	WithDefaultsExplicit WithDefaultsMode = "explicit"
+
+	// WithDefaultsReportAllTagged causes all default values to be reported with
+	// a wd:default="true" annotation (RFC 6243 §3.4).
+	WithDefaultsReportAllTagged WithDefaultsMode = "report-all-tagged"
+)
+
+// WithDefaultsParam encodes the <with-defaults> parameter element required by
+// RFC 6243 §4. The element uses the with-defaults YANG namespace and carries
+// the mode as character data.
+//
+// Example wire output:
+//
+//	<with-defaults xmlns="urn:ietf:params:xml:ns:yang:ietf-netconf-with-defaults">report-all</with-defaults>
+type WithDefaultsParam struct {
+	XMLName xml.Name         `xml:"urn:ietf:params:xml:ns:yang:ietf-netconf-with-defaults with-defaults"`
+	Mode    WithDefaultsMode `xml:",chardata"`
+}
+
 // ── Read operations ───────────────────────────────────────────────────────────
 
 // Get retrieves running configuration and state data (RFC 6241 §7.7).
 // Filter is optional; when nil all data is returned.
+// WithDefaults is optional; when nil the parameter is omitted (backward compatible).
+// Requires CapabilityWithDefaults on the device when set.
 type Get struct {
-	XMLName xml.Name `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 get"`
-	Filter  *Filter  `xml:"filter,omitempty"`
+	XMLName      xml.Name           `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 get"`
+	Filter       *Filter            `xml:"filter,omitempty"`
+	WithDefaults *WithDefaultsParam `xml:",omitempty"`
 }
 
 // GetConfig retrieves all or part of a specified configuration datastore
 // (RFC 6241 §7.1). Source identifies the datastore; Filter is optional.
+// WithDefaults is optional; when nil the parameter is omitted (backward compatible).
+// Requires CapabilityWithDefaults on the device when set.
 type GetConfig struct {
-	XMLName xml.Name `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 get-config"`
-	Source  Datastore `xml:"source"`
-	Filter  *Filter  `xml:"filter,omitempty"`
+	XMLName      xml.Name           `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 get-config"`
+	Source       Datastore          `xml:"source"`
+	Filter       *Filter            `xml:"filter,omitempty"`
+	WithDefaults *WithDefaultsParam `xml:",omitempty"`
 }
 
 // ── Write operations ──────────────────────────────────────────────────────────
@@ -101,10 +143,13 @@ type EditConfig struct {
 
 // CopyConfig creates or replaces an entire configuration datastore with the
 // contents of another (RFC 6241 §7.3).
+// WithDefaults is optional; when nil the parameter is omitted (backward compatible).
+// Requires CapabilityWithDefaults on the device when set.
 type CopyConfig struct {
-	XMLName xml.Name  `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 copy-config"`
-	Target  Datastore `xml:"target"`
-	Source  Datastore `xml:"source"`
+	XMLName      xml.Name           `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 copy-config"`
+	Target       Datastore          `xml:"target"`
+	Source       Datastore          `xml:"source"`
+	WithDefaults *WithDefaultsParam `xml:",omitempty"`
 }
 
 // DeleteConfig deletes a configuration datastore (RFC 6241 §7.4).
@@ -206,4 +251,49 @@ type CreateSubscription struct {
 	Filter    *Filter  `xml:"filter,omitempty"`
 	StartTime string   `xml:"startTime,omitempty"`
 	StopTime  string   `xml:"stopTime,omitempty"`
+}
+
+// ── RFC 5717 partial-lock operations ─────────────────────────────────────────
+
+// PartialLock locks a subset of the configuration datastore described by XPath
+// select expressions (RFC 5717 §2.1). Requires CapabilityPartialLock.
+//
+// Each string in Select must be a valid XPath 1.0 expression that identifies
+// the configuration nodes to lock. The device returns a PartialLockReply
+// containing the assigned lock-id and the list of locked node instances.
+//
+// RFC 5717 §3.1 uses the NETCONF base namespace for this operation element.
+type PartialLock struct {
+	XMLName xml.Name `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 partial-lock"`
+	Select  []string `xml:"select"`
+}
+
+// PartialUnlock releases a partial lock previously acquired via PartialLock
+// (RFC 5717 §2.2). Requires CapabilityPartialLock.
+//
+// LockID must be the lock-id value returned in the PartialLockReply for the
+// lock being released.
+type PartialUnlock struct {
+	XMLName xml.Name `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 partial-unlock"`
+	LockID  uint32   `xml:"lock-id"`
+}
+
+// PartialLockReply deserializes the reply body returned by a <partial-lock> RPC
+// (RFC 5717 §2.1.3). After a successful partial-lock operation, unmarshal
+// RPCReply.Body into this type to retrieve the assigned LockID and the
+// canonical XPath expressions of the locked nodes.
+//
+// Example usage:
+//
+//	var plr netconf.PartialLockReply
+//	if err := xml.Unmarshal(reply.Body, &plr); err != nil { … }
+//	// plr.LockID holds the lock-id to pass to PartialUnlock
+//	// plr.LockedNode holds the locked-node list
+//
+// Note: The <partial-lock-reply> element is sent without a namespace prefix
+// inside the base-namespace <rpc-reply> body; matching on local name only.
+type PartialLockReply struct {
+	XMLName    xml.Name `xml:"partial-lock-reply"`
+	LockID     uint32   `xml:"lock-id"`
+	LockedNode []string `xml:"locked-node"`
 }
