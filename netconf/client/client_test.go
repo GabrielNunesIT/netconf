@@ -2,10 +2,17 @@ package client_test
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	cryptotls "crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"encoding/xml"
 	"errors"
+	"math/big"
 	"net"
 	"testing"
 	"time"
@@ -14,6 +21,7 @@ import (
 	"github.com/GabrielNunesIT/netconf/netconf/client"
 	"github.com/GabrielNunesIT/netconf/netconf/transport"
 	ncssh "github.com/GabrielNunesIT/netconf/netconf/transport/ssh"
+	nctls "github.com/GabrielNunesIT/netconf/netconf/transport/tls"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	gossh "golang.org/x/crypto/ssh"
@@ -982,4 +990,202 @@ func TestClient_NotificationChannelClosedOnDispatcherExit(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for Notifications() channel to close")
 	}
+}
+
+// ── TLS loopback helpers ──────────────────────────────────────────────────────
+
+// tlsClientCABundle holds an ECDSA CA cert + key for TLS test cert generation.
+type tlsClientCABundle struct {
+	cert *x509.Certificate
+	key  *ecdsa.PrivateKey
+}
+
+// generateClientTestCA creates a self-signed ECDSA P-256 CA for use in TLS
+// loopback tests. No disk I/O; keys are ephemeral.
+func generateClientTestCA(t *testing.T) *tlsClientCABundle {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err, "generate CA key")
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "Test CA"},
+		NotBefore:             time.Now().Add(-time.Minute),
+		NotAfter:              time.Now().Add(time.Hour),
+		IsCA:                  true,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		BasicConstraintsValid: true,
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	require.NoError(t, err, "create CA cert")
+	cert, err := x509.ParseCertificate(certDER)
+	require.NoError(t, err, "parse CA cert")
+	return &tlsClientCABundle{cert: cert, key: key}
+}
+
+// generateClientTestCert creates a certificate signed by ca using template.
+// Returns cert PEM, key PEM, and the parsed *x509.Certificate.
+func generateClientTestCert(t *testing.T, ca *tlsClientCABundle, template *x509.Certificate) (certPEM, keyPEM []byte, parsed *x509.Certificate) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err, "generate cert key")
+	certDER, err := x509.CreateCertificate(rand.Reader, template, ca.cert, &key.PublicKey, ca.key)
+	require.NoError(t, err, "create cert")
+	parsed, err = x509.ParseCertificate(certDER)
+	require.NoError(t, err, "parse cert")
+	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	require.NoError(t, err, "marshal key")
+	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+	return
+}
+
+// testClientTLSConfigs returns a matched server+client *cryptotls.Config pair
+// for TLS loopback tests, with mutual auth enabled.
+func testClientTLSConfigs(t *testing.T) (serverCfg, clientCfg *cryptotls.Config) {
+	t.Helper()
+	ca := generateClientTestCA(t)
+
+	caPool := x509.NewCertPool()
+	caPool.AddCert(ca.cert)
+
+	// Server cert (SANs: "localhost", "127.0.0.1").
+	sCertPEM, sKeyPEM, _ := generateClientTestCert(t, ca, &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject:      pkix.Name{CommonName: "server.test"},
+		DNSNames:     []string{"localhost", "127.0.0.1"},
+		NotBefore:    time.Now().Add(-time.Minute),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	})
+	serverTLSCert, err := cryptotls.X509KeyPair(sCertPEM, sKeyPEM)
+	require.NoError(t, err, "server X509KeyPair")
+
+	// Client cert (SAN DNS: "client.test").
+	cCertPEM, cKeyPEM, _ := generateClientTestCert(t, ca, &x509.Certificate{
+		SerialNumber: big.NewInt(3),
+		Subject:      pkix.Name{CommonName: "client.test"},
+		DNSNames:     []string{"client.test"},
+		NotBefore:    time.Now().Add(-time.Minute),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	})
+	clientTLSCert, err := cryptotls.X509KeyPair(cCertPEM, cKeyPEM)
+	require.NoError(t, err, "client X509KeyPair")
+
+	serverCfg = &cryptotls.Config{
+		Certificates: []cryptotls.Certificate{serverTLSCert},
+		ClientAuth:   cryptotls.RequireAndVerifyClientCert,
+		ClientCAs:    caPool,
+	}
+	clientCfg = &cryptotls.Config{
+		Certificates: []cryptotls.Certificate{clientTLSCert},
+		RootCAs:      caPool,
+		ServerName:   "localhost",
+	}
+	return
+}
+
+// ── TestClient_TLSLoopback ────────────────────────────────────────────────────
+
+// TestClient_TLSLoopback is a full end-to-end integration test for the TLS
+// transport path:
+//
+//	TCP loopback → TLS mutual auth (ECDSA P-256) → NETCONF hello exchange →
+//	DialTLS → GetConfig typed method → DataReply
+//
+// This proves the complete DialTLS → ClientSession → NewClient → GetConfig
+// stack using an ephemeral in-process TLS server.
+func TestClient_TLSLoopback(t *testing.T) {
+	serverCfg, clientCfg := testClientTLSConfigs(t)
+
+	caps := netconf.NewCapabilitySet([]string{netconf.BaseCap10, netconf.BaseCap11})
+
+	// Bind a loopback listener for the TLS server.
+	nl, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err, "listen on loopback")
+	addr := nl.Addr().String()
+
+	tlsListener := nctls.NewListener(nl, serverCfg)
+	defer tlsListener.Close()
+
+	// Server goroutine: accept one connection, run ServerSession, then echo
+	// RPCs using the same echo logic as TestClient_SSHLoopback.
+	type srvResult struct {
+		sess *netconf.Session
+		err  error
+	}
+	srvCh := make(chan srvResult, 1)
+	go func() {
+		srvTrp, err := tlsListener.Accept()
+		if err != nil {
+			srvCh <- srvResult{err: err}
+			return
+		}
+		sess, err := netconf.ServerSession(srvTrp, caps, 99)
+		if err != nil {
+			_ = srvTrp.Close()
+			srvCh <- srvResult{err: err}
+			return
+		}
+		srvCh <- srvResult{sess: sess}
+	}()
+
+	// Client: DialTLS performs TCP dial + TLS handshake + NETCONF hello.
+	ctx := context.Background()
+	cl, err := client.DialTLS(ctx, addr, clientCfg, caps)
+	require.NoError(t, err, "DialTLS must succeed")
+	defer cl.Close()
+
+	// Collect server result; it must be ready by now (DialTLS blocks until
+	// hello completes, which requires the server to have finished too).
+	var sr srvResult
+	select {
+	case sr = <-srvCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for server session")
+	}
+	require.NoError(t, sr.err, "ServerSession must succeed")
+
+	// Drive the server session: read RPCs and write data/ok replies.
+	go func() {
+		for {
+			raw, err := sr.sess.Recv()
+			if err != nil {
+				return // transport closed — normal exit
+			}
+			var rpc netconf.RPC
+			if err := xml.Unmarshal(raw, &rpc); err != nil {
+				continue
+			}
+			opName := firstElementName(rpc.Body)
+			var reply *netconf.RPCReply
+			switch opName {
+			case "get", "get-config":
+				reply = &netconf.RPCReply{
+					MessageID: rpc.MessageID,
+					Body:      []byte(dataBody),
+				}
+			default:
+				reply = &netconf.RPCReply{
+					MessageID: rpc.MessageID,
+					Ok:        &struct{}{},
+				}
+			}
+			data, _ := xml.Marshal(reply)
+			if err := sr.sess.Send(data); err != nil {
+				return
+			}
+		}
+	}()
+
+	// Verify the full stack: GetConfig over real TLS returns a DataReply.
+	dr, err := cl.GetConfig(ctx, netconf.Datastore{Running: &struct{}{}}, nil)
+	require.NoError(t, err, "GetConfig over TLS must succeed")
+	require.NotNil(t, dr, "DataReply must not be nil")
+
+	// Clean teardown: CloseSession then Close.
+	require.NoError(t, cl.CloseSession(ctx), "CloseSession must succeed")
+	require.NoError(t, cl.Close(), "Close must succeed")
 }

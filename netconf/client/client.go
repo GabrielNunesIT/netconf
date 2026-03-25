@@ -36,11 +36,14 @@
 //     full rpc-error propagation path through the typed method layer.
 //   - go test ./netconf/client/... -run TestClient_SSHLoopback -v proves
 //     the full TCP→SSH→NETCONF hello→GetConfig→DataReply stack.
+//   - go test ./netconf/client/... -run TestClient_TLSLoopback -v proves
+//     the full TCP→TLS→NETCONF hello→GetConfig→DataReply stack.
 package client
 
 import (
 	"bytes"
 	"context"
+	cryptotls "crypto/tls"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -48,6 +51,7 @@ import (
 	"sync/atomic"
 
 	netconf "github.com/GabrielNunesIT/netconf/netconf"
+	nctls "github.com/GabrielNunesIT/netconf/netconf/transport/tls"
 	ncssh "github.com/GabrielNunesIT/netconf/netconf/transport/ssh"
 	gossh "golang.org/x/crypto/ssh"
 )
@@ -476,7 +480,7 @@ func (c *Client) CancelCommit(ctx context.Context, persistID string) error {
 	return checkReply(reply)
 }
 
-// ── Production constructor ────────────────────────────────────────────────────
+// ── Production constructors ───────────────────────────────────────────────────
 
 // Dial opens a TCP connection to addr, performs the SSH handshake, negotiates
 // the NETCONF hello exchange, and returns a ready-to-use Client.
@@ -506,6 +510,52 @@ func Dial(ctx context.Context, addr string, config *gossh.ClientConfig, localCap
 	if err != nil {
 		_ = trp.Close()
 		return nil, fmt.Errorf("client: Dial %s: NETCONF hello: %w", addr, err)
+	}
+
+	return NewClient(sess), nil
+}
+
+// DialTLS opens a TCP connection to addr, performs the TLS handshake with
+// mutual X.509 authentication, negotiates the NETCONF hello exchange, and
+// returns a ready-to-use Client.
+//
+// addr must be in "host:port" form (e.g. "192.0.2.1:6513").
+// config must supply the client certificate and the server CA pool for mutual
+// TLS as required by RFC 7589.
+// localCaps declares the capabilities this client advertises in the hello.
+//
+// ctx is checked for cancellation before the dial is started; TLS dialing
+// itself is not context-aware (Go's stdlib crypto/tls.Dial does not accept
+// a context). On any error, all partially-opened resources are cleaned up.
+//
+// # Observability Impact
+//
+// Errors from DialTLS carry a "client: DialTLS <addr>:" prefix so log lines
+// identify the layer and the target address. Failures in the three dial steps
+// are distinguishable:
+//   - "client: DialTLS <addr>: context already done: …" — ctx was cancelled
+//   - "client: DialTLS <addr>: tls client: dial <addr>: …" — TLS handshake or
+//     TCP-connect failed (underlying error names cert verify failure, refused
+//     connection, etc.)
+//   - "client: DialTLS <addr>: NETCONF hello: …" — hello exchange failed after
+//     TLS succeeded
+//
+// Inspection: `go test ./netconf/client/... -v -run TestClient_TLSLoopback`
+// prints the full TLS→hello→GetConfig stack.
+func DialTLS(ctx context.Context, addr string, config *cryptotls.Config, localCaps netconf.CapabilitySet) (*Client, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("client: DialTLS %s: context already done: %w", addr, err)
+	}
+
+	trp, err := nctls.Dial(addr, config)
+	if err != nil {
+		return nil, fmt.Errorf("client: DialTLS %s: %w", addr, err)
+	}
+
+	sess, err := netconf.ClientSession(trp, localCaps)
+	if err != nil {
+		_ = trp.Close()
+		return nil, fmt.Errorf("client: DialTLS %s: NETCONF hello: %w", addr, err)
 	}
 
 	return NewClient(sess), nil
