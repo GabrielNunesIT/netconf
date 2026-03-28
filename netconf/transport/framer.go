@@ -57,8 +57,8 @@ type Framer struct {
 	mu   sync.Mutex  // protects mode only; read/write are single-goroutine
 	mode framingMode // current framing mode
 
-	rw  io.ReadWriter     // underlying byte stream
-	br  *bufio.Reader     // buffered reader over rw (read side)
+	rw io.ReadWriter // underlying byte stream
+	br *bufio.Reader // buffered reader over rw (read side)
 }
 
 // NewFramer creates a Framer that starts in EOM mode (base:1.0).
@@ -123,7 +123,7 @@ func (f *Framer) eomReader() (io.ReadCloser, error) {
 		b, err := f.br.ReadByte()
 		if err != nil {
 			if errors.Is(err, io.EOF) && buf.Len() > 0 {
-				return nil, fmt.Errorf("eom: unexpected EOF before ]]>]]> delimiter")
+				return nil, errors.New("eom: unexpected EOF before ]]>]]> delimiter")
 			}
 			return nil, fmt.Errorf("eom: read: %w", err)
 		}
@@ -196,7 +196,8 @@ func (f *Framer) chunkedReader() (io.ReadCloser, error) {
 		if next < '0' || next > '9' {
 			return nil, fmt.Errorf("chunked: chunk header: expected digit after '#', got %q", next)
 		}
-		sizeStr := string(next)
+		var sizeBuf []byte
+		sizeBuf = append(sizeBuf, next)
 		for {
 			c, err := f.br.ReadByte()
 			if err != nil {
@@ -208,8 +209,9 @@ func (f *Framer) chunkedReader() (io.ReadCloser, error) {
 			if c < '0' || c > '9' {
 				return nil, fmt.Errorf("chunked: chunk size contains non-digit %q", c)
 			}
-			sizeStr += string(c)
+			sizeBuf = append(sizeBuf, c)
 		}
+		sizeStr := string(sizeBuf)
 
 		// Validate the chunk size.
 		size64, err := strconv.ParseUint(sizeStr, 10, 64)
@@ -217,7 +219,7 @@ func (f *Framer) chunkedReader() (io.ReadCloser, error) {
 			return nil, fmt.Errorf("chunked: chunk size %q is not a valid uint: %w", sizeStr, err)
 		}
 		if size64 == 0 {
-			return nil, fmt.Errorf("chunked: chunk size 0 is invalid (RFC 6242 §4.2 requires size ≥ 1)")
+			return nil, errors.New("chunked: chunk size 0 is invalid (RFC 6242 §4.2 requires size ≥ 1)")
 		}
 		if size64 > maxChunkSize {
 			return nil, fmt.Errorf("chunked: chunk size %d exceeds maximum %d", size64, maxChunkSize)

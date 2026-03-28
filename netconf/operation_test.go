@@ -32,9 +32,10 @@ func assertNSPresent(t *testing.T, xmlStr, element string) {
 // TestDatastore_RunningEncoding verifies that Datastore{Running: &struct{}{}}
 // marshals the running datastore as a child element, not an attribute.
 func TestDatastore_RunningEncoding(t *testing.T) {
+	t.Parallel()
 	// Wrap in a parent element so xml.Marshal is happy with the struct tag context.
 	type wrapper struct {
-		XMLName xml.Name        `xml:"source"`
+		XMLName xml.Name          `xml:"source"`
 		DS      netconf.Datastore `xml:",omitempty"`
 	}
 	w := wrapper{DS: netconf.Datastore{Running: &struct{}{}}}
@@ -51,6 +52,7 @@ func TestDatastore_RunningEncoding(t *testing.T) {
 
 // TestDatastore_CandidateEncoding mirrors TestDatastore_RunningEncoding for <candidate/>.
 func TestDatastore_CandidateEncoding(t *testing.T) {
+	t.Parallel()
 	type wrapper struct {
 		XMLName xml.Name          `xml:"target"`
 		DS      netconf.Datastore `xml:",omitempty"`
@@ -67,6 +69,7 @@ func TestDatastore_CandidateEncoding(t *testing.T) {
 
 // TestDatastore_StartupEncoding mirrors for <startup/>.
 func TestDatastore_StartupEncoding(t *testing.T) {
+	t.Parallel()
 	type wrapper struct {
 		XMLName xml.Name          `xml:"source"`
 		DS      netconf.Datastore `xml:",omitempty"`
@@ -82,6 +85,7 @@ func TestDatastore_StartupEncoding(t *testing.T) {
 
 // TestDatastore_URLEncoding verifies that a URL datastore encodes as <url>.
 func TestDatastore_URLEncoding(t *testing.T) {
+	t.Parallel()
 	type wrapper struct {
 		XMLName xml.Name          `xml:"source"`
 		DS      netconf.Datastore `xml:",omitempty"`
@@ -102,8 +106,9 @@ func TestDatastore_URLEncoding(t *testing.T) {
 // TestFilter_SubtreeRoundTrip verifies a subtree filter with arbitrary XML content
 // round-trips through marshal/unmarshal with content preserved.
 func TestFilter_SubtreeRoundTrip(t *testing.T) {
+	t.Parallel()
 	type wrapper struct {
-		XMLName xml.Name      `xml:"get"`
+		XMLName xml.Name       `xml:"get"`
 		F       netconf.Filter `xml:"filter"`
 	}
 	subtreeContent := []byte(`<interfaces><interface><name>eth0</name></interface></interfaces>`)
@@ -126,8 +131,9 @@ func TestFilter_SubtreeRoundTrip(t *testing.T) {
 // TestFilter_XPathRoundTrip verifies an XPath filter with a select expression
 // round-trips and encodes the select attribute correctly.
 func TestFilter_XPathRoundTrip(t *testing.T) {
+	t.Parallel()
 	type wrapper struct {
-		XMLName xml.Name      `xml:"get"`
+		XMLName xml.Name       `xml:"get"`
 		F       netconf.Filter `xml:"filter"`
 	}
 	orig := wrapper{F: netconf.Filter{
@@ -152,8 +158,9 @@ func TestFilter_XPathRoundTrip(t *testing.T) {
 // TestFilter_SubtreeOmitsSelectAttr verifies that the select attribute is absent
 // from a subtree filter output.
 func TestFilter_SubtreeOmitsSelectAttr(t *testing.T) {
+	t.Parallel()
 	type wrapper struct {
-		XMLName xml.Name      `xml:"get"`
+		XMLName xml.Name       `xml:"get"`
 		F       netconf.Filter `xml:"filter"`
 	}
 	w := wrapper{F: netconf.Filter{Type: "subtree", Content: []byte(`<foo/>`)}}
@@ -166,6 +173,7 @@ func TestFilter_SubtreeOmitsSelectAttr(t *testing.T) {
 // TestDataReply_DecodeFromBody simulates decoding the <data> element from
 // RPCReply.Body, which is the normal path after a get or get-config response.
 func TestDataReply_DecodeFromBody(t *testing.T) {
+	t.Parallel()
 	// Construct a realistic RPCReply.Body containing a <data> element.
 	body := []byte(`<data><interfaces><interface><name>lo</name></interface></interfaces></data>`)
 
@@ -181,6 +189,7 @@ func TestDataReply_DecodeFromBody(t *testing.T) {
 // TestDataReply_EmptyData verifies that an empty <data/> element is handled
 // without error and Content is empty/nil.
 func TestDataReply_EmptyData(t *testing.T) {
+	t.Parallel()
 	var dr netconf.DataReply
 	require.NoError(t, xml.Unmarshal([]byte(`<data/>`), &dr))
 	assert.Empty(t, dr.Content, "empty <data/> must yield empty Content")
@@ -190,6 +199,7 @@ func TestDataReply_EmptyData(t *testing.T) {
 
 // TestGet_MarshalRoundTrip verifies Get with a subtree filter round-trips.
 func TestGet_MarshalRoundTrip(t *testing.T) {
+	t.Parallel()
 	orig := netconf.Get{
 		Filter: &netconf.Filter{
 			Type:    "subtree",
@@ -210,6 +220,7 @@ func TestGet_MarshalRoundTrip(t *testing.T) {
 
 // TestGet_NoFilter verifies Get with no filter omits the <filter> element.
 func TestGet_NoFilter(t *testing.T) {
+	t.Parallel()
 	orig := netconf.Get{}
 	xmlStr := mustMarshal(t, orig)
 	assertNSPresent(t, xmlStr, "get")
@@ -219,6 +230,7 @@ func TestGet_NoFilter(t *testing.T) {
 // TestGetConfig_MarshalRoundTrip verifies GetConfig with running source
 // and a subtree filter round-trips correctly.
 func TestGetConfig_MarshalRoundTrip(t *testing.T) {
+	t.Parallel()
 	orig := netconf.GetConfig{
 		Source: netconf.Datastore{Running: &struct{}{}},
 		Filter: &netconf.Filter{
@@ -242,6 +254,7 @@ func TestGetConfig_MarshalRoundTrip(t *testing.T) {
 
 // TestEditConfig_MarshalRoundTrip verifies EditConfig with all optional fields set.
 func TestEditConfig_MarshalRoundTrip(t *testing.T) {
+	t.Parallel()
 	config := []byte(`<config><system><hostname>router1</hostname></system></config>`)
 	orig := netconf.EditConfig{
 		Target:           netconf.Datastore{Running: &struct{}{}},
@@ -271,6 +284,7 @@ func TestEditConfig_MarshalRoundTrip(t *testing.T) {
 // TestEditConfig_OptionalFieldsOmitted verifies optional EditConfig fields
 // are absent when zero.
 func TestEditConfig_OptionalFieldsOmitted(t *testing.T) {
+	t.Parallel()
 	orig := netconf.EditConfig{
 		Target: netconf.Datastore{Running: &struct{}{}},
 		Config: []byte(`<config/>`),
@@ -283,6 +297,7 @@ func TestEditConfig_OptionalFieldsOmitted(t *testing.T) {
 
 // TestCopyConfig_MarshalRoundTrip verifies CopyConfig with candidate→running round-trips.
 func TestCopyConfig_MarshalRoundTrip(t *testing.T) {
+	t.Parallel()
 	orig := netconf.CopyConfig{
 		Source: netconf.Datastore{Candidate: &struct{}{}},
 		Target: netconf.Datastore{Running: &struct{}{}},
@@ -302,6 +317,7 @@ func TestCopyConfig_MarshalRoundTrip(t *testing.T) {
 
 // TestDeleteConfig_MarshalRoundTrip verifies DeleteConfig with startup target.
 func TestDeleteConfig_MarshalRoundTrip(t *testing.T) {
+	t.Parallel()
 	orig := netconf.DeleteConfig{
 		Target: netconf.Datastore{Startup: &struct{}{}},
 	}
@@ -318,6 +334,7 @@ func TestDeleteConfig_MarshalRoundTrip(t *testing.T) {
 
 // TestLock_MarshalRoundTrip verifies Lock with running datastore.
 func TestLock_MarshalRoundTrip(t *testing.T) {
+	t.Parallel()
 	orig := netconf.Lock{
 		Target: netconf.Datastore{Running: &struct{}{}},
 	}
@@ -334,6 +351,7 @@ func TestLock_MarshalRoundTrip(t *testing.T) {
 
 // TestUnlock_MarshalRoundTrip verifies Unlock with candidate datastore.
 func TestUnlock_MarshalRoundTrip(t *testing.T) {
+	t.Parallel()
 	orig := netconf.Unlock{
 		Target: netconf.Datastore{Candidate: &struct{}{}},
 	}
@@ -350,6 +368,7 @@ func TestUnlock_MarshalRoundTrip(t *testing.T) {
 
 // TestCloseSession_MarshalRoundTrip verifies CloseSession has no body fields.
 func TestCloseSession_MarshalRoundTrip(t *testing.T) {
+	t.Parallel()
 	orig := netconf.CloseSession{}
 
 	xmlStr := mustMarshal(t, orig)
@@ -364,6 +383,7 @@ func TestCloseSession_MarshalRoundTrip(t *testing.T) {
 
 // TestKillSession_MarshalRoundTrip verifies KillSession with a session ID.
 func TestKillSession_MarshalRoundTrip(t *testing.T) {
+	t.Parallel()
 	orig := netconf.KillSession{SessionID: 42}
 
 	xmlStr := mustMarshal(t, orig)
@@ -379,6 +399,7 @@ func TestKillSession_MarshalRoundTrip(t *testing.T) {
 // TestKillSession_ZeroSessionID verifies zero SessionID is still encoded
 // (it is a required field per RFC 6241).
 func TestKillSession_ZeroSessionID(t *testing.T) {
+	t.Parallel()
 	orig := netconf.KillSession{SessionID: 0}
 	xmlStr := mustMarshal(t, orig)
 	// The element must be present even when zero — kill-session always requires it.
@@ -387,6 +408,7 @@ func TestKillSession_ZeroSessionID(t *testing.T) {
 
 // TestValidate_MarshalRoundTrip verifies Validate with candidate source.
 func TestValidate_MarshalRoundTrip(t *testing.T) {
+	t.Parallel()
 	orig := netconf.Validate{
 		Source: netconf.Datastore{Candidate: &struct{}{}},
 	}
@@ -403,6 +425,7 @@ func TestValidate_MarshalRoundTrip(t *testing.T) {
 
 // TestCommit_MarshalRoundTrip verifies a plain commit (no confirmed-commit fields).
 func TestCommit_MarshalRoundTrip(t *testing.T) {
+	t.Parallel()
 	orig := netconf.Commit{}
 
 	xmlStr := mustMarshal(t, orig)
@@ -420,6 +443,7 @@ func TestCommit_MarshalRoundTrip(t *testing.T) {
 // TestCommit_ConfirmedCommit_MarshalRoundTrip verifies all confirmed-commit
 // optional fields are encoded and preserved.
 func TestCommit_ConfirmedCommit_MarshalRoundTrip(t *testing.T) {
+	t.Parallel()
 	orig := netconf.Commit{
 		Confirmed:      &struct{}{},
 		ConfirmTimeout: 300,
@@ -444,6 +468,7 @@ func TestCommit_ConfirmedCommit_MarshalRoundTrip(t *testing.T) {
 
 // TestDiscardChanges_MarshalRoundTrip verifies DiscardChanges has no body.
 func TestDiscardChanges_MarshalRoundTrip(t *testing.T) {
+	t.Parallel()
 	orig := netconf.DiscardChanges{}
 
 	xmlStr := mustMarshal(t, orig)
@@ -457,6 +482,7 @@ func TestDiscardChanges_MarshalRoundTrip(t *testing.T) {
 
 // TestCancelCommit_MarshalRoundTrip verifies CancelCommit with and without PersistID.
 func TestCancelCommit_MarshalRoundTrip(t *testing.T) {
+	t.Parallel()
 	// With PersistID.
 	orig := netconf.CancelCommit{PersistID: "token-abc"}
 
@@ -472,6 +498,7 @@ func TestCancelCommit_MarshalRoundTrip(t *testing.T) {
 
 // TestCancelCommit_NoPersistID verifies PersistID is omitted when zero.
 func TestCancelCommit_NoPersistID(t *testing.T) {
+	t.Parallel()
 	orig := netconf.CancelCommit{}
 	xmlStr := mustMarshal(t, orig)
 	assert.NotContains(t, xmlStr, "persist-id", "persist-id must be absent when empty")
@@ -482,6 +509,7 @@ func TestCancelCommit_NoPersistID(t *testing.T) {
 // TestCreateSubscription_MarshalNamespace verifies that CreateSubscription marshals
 // with the RFC 5277 notification namespace and the <create-subscription> element name.
 func TestCreateSubscription_MarshalNamespace(t *testing.T) {
+	t.Parallel()
 	cs := netconf.CreateSubscription{}
 	xmlStr := mustMarshal(t, cs)
 
@@ -502,6 +530,7 @@ func TestCreateSubscription_MarshalNamespace(t *testing.T) {
 // TestCreateSubscription_RoundTrip verifies that a CreateSubscription with Stream,
 // StartTime, and StopTime set survives a marshal/unmarshal round-trip.
 func TestCreateSubscription_RoundTrip(t *testing.T) {
+	t.Parallel()
 	orig := netconf.CreateSubscription{
 		Stream:    "NETCONF",
 		StartTime: "2024-01-01T00:00:00Z",
@@ -523,6 +552,7 @@ func TestCreateSubscription_RoundTrip(t *testing.T) {
 // TestCreateSubscription_OmitEmpty verifies that a CreateSubscription with no optional
 // fields set emits only the root element with namespace — no child elements.
 func TestCreateSubscription_OmitEmpty(t *testing.T) {
+	t.Parallel()
 	orig := netconf.CreateSubscription{}
 	xmlStr := mustMarshal(t, orig)
 
@@ -538,6 +568,7 @@ func TestCreateSubscription_OmitEmpty(t *testing.T) {
 // TestCreateSubscription_WithFilter verifies that a CreateSubscription with a filter
 // marshals the filter child element correctly.
 func TestCreateSubscription_WithFilter(t *testing.T) {
+	t.Parallel()
 	orig := netconf.CreateSubscription{
 		Stream: "NETCONF",
 		Filter: &netconf.Filter{
@@ -562,6 +593,7 @@ func TestCreateSubscription_WithFilter(t *testing.T) {
 // can be marshaled into RPC.Body, the full RPC then marshaled to wire format,
 // and the result correctly decoded back through RPCReply.Body → DataReply.
 func TestRPC_WithGetConfig_Composition(t *testing.T) {
+	t.Parallel()
 	// Step 1: marshal the GetConfig operation.
 	gc := netconf.GetConfig{
 		Source: netconf.Datastore{Running: &struct{}{}},
@@ -613,6 +645,7 @@ func TestRPC_WithGetConfig_Composition(t *testing.T) {
 // carries the NETCONF base namespace as xmlns="…" in marshaled output.
 // This is the L001 invariant: namespace in struct tag, not set at runtime.
 func TestAllOperations_HaveNetconfNamespace(t *testing.T) {
+	t.Parallel()
 	const ns = `xmlns="urn:ietf:params:xml:ns:netconf:base:1.0"`
 
 	running := netconf.Datastore{Running: &struct{}{}}
@@ -623,7 +656,7 @@ func TestAllOperations_HaveNetconfNamespace(t *testing.T) {
 	}{
 		{"Get", netconf.Get{}},
 		{"GetConfig", netconf.GetConfig{Source: running}},
-		{"EditConfig", netconf.EditConfig{Target: running, Config: []byte(`<config/>`)},},
+		{"EditConfig", netconf.EditConfig{Target: running, Config: []byte(`<config/>`)}},
 		{"CopyConfig", netconf.CopyConfig{Target: running, Source: running}},
 		{"DeleteConfig", netconf.DeleteConfig{Target: running}},
 		{"Lock", netconf.Lock{Target: running}},
@@ -638,6 +671,7 @@ func TestAllOperations_HaveNetconfNamespace(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			data, err := xml.Marshal(tc.v)
 			require.NoError(t, err)
 			assert.Contains(t, string(data), ns,
@@ -651,6 +685,7 @@ func TestAllOperations_HaveNetconfNamespace(t *testing.T) {
 // TestAllOperations_ElementNames verifies the XML element name for every
 // operation matches the RFC 6241 §7 element name exactly.
 func TestAllOperations_ElementNames(t *testing.T) {
+	t.Parallel()
 	running := netconf.Datastore{Running: &struct{}{}}
 
 	cases := []struct {
@@ -675,6 +710,7 @@ func TestAllOperations_ElementNames(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			data, err := xml.Marshal(tc.v)
 			require.NoError(t, err)
 			xmlStr := string(data)
@@ -692,6 +728,7 @@ func TestAllOperations_ElementNames(t *testing.T) {
 // field produces XML identical to the pre-change struct (no with-defaults element,
 // no extra namespace declarations). This is the key R034 backward-compat assertion.
 func TestGet_BackwardCompat_NilWithDefaults(t *testing.T) {
+	t.Parallel()
 	op := netconf.Get{}
 	xmlStr := mustMarshal(t, op)
 
@@ -705,6 +742,7 @@ func TestGet_BackwardCompat_NilWithDefaults(t *testing.T) {
 // TestGetConfig_BackwardCompat_NilWithDefaults proves that GetConfig with Source set
 // but nil WithDefaults produces XML identical to the pre-change struct.
 func TestGetConfig_BackwardCompat_NilWithDefaults(t *testing.T) {
+	t.Parallel()
 	op := netconf.GetConfig{Source: netconf.Datastore{Running: &struct{}{}}}
 	xmlStr := mustMarshal(t, op)
 
@@ -719,6 +757,7 @@ func TestGetConfig_BackwardCompat_NilWithDefaults(t *testing.T) {
 // TestCopyConfig_BackwardCompat_NilWithDefaults proves that CopyConfig with nil
 // WithDefaults produces XML identical to the pre-change struct.
 func TestCopyConfig_BackwardCompat_NilWithDefaults(t *testing.T) {
+	t.Parallel()
 	op := netconf.CopyConfig{
 		Source: netconf.Datastore{Candidate: &struct{}{}},
 		Target: netconf.Datastore{Running: &struct{}{}},
@@ -740,6 +779,7 @@ func TestCopyConfig_BackwardCompat_NilWithDefaults(t *testing.T) {
 // the with-defaults element with the correct namespace and value, and that
 // unmarshaling recovers the same mode.
 func TestGet_WithDefaults_RoundTrip(t *testing.T) {
+	t.Parallel()
 	orig := netconf.Get{
 		WithDefaults: &netconf.WithDefaultsParam{Mode: netconf.WithDefaultsReportAll},
 	}
@@ -763,6 +803,7 @@ func TestGet_WithDefaults_RoundTrip(t *testing.T) {
 // TestGetConfig_WithDefaults_RoundTrip verifies GetConfig with WithDefaults set
 // round-trips with the correct namespace and mode value.
 func TestGetConfig_WithDefaults_RoundTrip(t *testing.T) {
+	t.Parallel()
 	orig := netconf.GetConfig{
 		Source:       netconf.Datastore{Running: &struct{}{}},
 		WithDefaults: &netconf.WithDefaultsParam{Mode: netconf.WithDefaultsTrim},
@@ -783,6 +824,7 @@ func TestGetConfig_WithDefaults_RoundTrip(t *testing.T) {
 // TestCopyConfig_WithDefaults_RoundTrip verifies CopyConfig with WithDefaults set
 // round-trips with the correct namespace and mode value.
 func TestCopyConfig_WithDefaults_RoundTrip(t *testing.T) {
+	t.Parallel()
 	orig := netconf.CopyConfig{
 		Source:       netconf.Datastore{Candidate: &struct{}{}},
 		Target:       netconf.Datastore{Running: &struct{}{}},
@@ -805,6 +847,7 @@ func TestCopyConfig_WithDefaults_RoundTrip(t *testing.T) {
 // with-defaults modes marshal to their RFC 6243 string values and unmarshal back
 // to the same typed constant.
 func TestWithDefaultsMode_AllModes(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		mode    netconf.WithDefaultsMode
 		wantStr string
@@ -816,6 +859,7 @@ func TestWithDefaultsMode_AllModes(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.wantStr, func(t *testing.T) {
+			t.Parallel()
 			param := netconf.WithDefaultsParam{Mode: tc.mode}
 			data, err := xml.Marshal(param)
 			require.NoError(t, err)
@@ -841,6 +885,7 @@ func TestWithDefaultsMode_AllModes(t *testing.T) {
 // select expressions marshals with the NETCONF base namespace, the correct element
 // name, and both select child elements, and that unmarshal recovers the same data.
 func TestPartialLock_MarshalRoundTrip(t *testing.T) {
+	t.Parallel()
 	orig := netconf.PartialLock{
 		Select: []string{
 			"/interfaces/interface[name='eth0']",
@@ -869,6 +914,7 @@ func TestPartialLock_MarshalRoundTrip(t *testing.T) {
 // marshals with the NETCONF base namespace, the correct element name, and the
 // lock-id child element, and that unmarshal recovers the same lock-id.
 func TestPartialUnlock_MarshalRoundTrip(t *testing.T) {
+	t.Parallel()
 	orig := netconf.PartialUnlock{LockID: 42}
 	xmlStr := mustMarshal(t, orig)
 
@@ -889,6 +935,7 @@ func TestPartialUnlock_MarshalRoundTrip(t *testing.T) {
 // element (as returned by the device inside the <rpc-reply> body) deserializes
 // correctly into PartialLockReply.
 func TestPartialLockReply_Unmarshal(t *testing.T) {
+	t.Parallel()
 	replyXML := `<partial-lock-reply>` +
 		`<lock-id>17</lock-id>` +
 		`<locked-node>/interfaces/interface[name='eth0']</locked-node>` +

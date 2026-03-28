@@ -12,6 +12,7 @@ import (
 // TestYangPush_NamespaceConstant verifies the YangPushNS and CapabilityURI
 // constants match the RFC 8641 YANG module namespace.
 func TestYangPush_NamespaceConstant(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, "urn:ietf:params:xml:ns:yang:ietf-yang-push", yangpush.YangPushNS)
 	assert.Equal(t, yangpush.YangPushNS, yangpush.CapabilityURI,
 		"CapabilityURI must equal YangPushNS")
@@ -20,6 +21,7 @@ func TestYangPush_NamespaceConstant(t *testing.T) {
 // TestPeriodicTrigger_RoundTrip verifies PeriodicTrigger with Period and
 // AnchorTime round-trips through xml.Marshal/Unmarshal correctly.
 func TestPeriodicTrigger_RoundTrip(t *testing.T) {
+	t.Parallel()
 	original := yangpush.PeriodicTrigger{
 		Period:     1000, // 10 seconds
 		AnchorTime: "2026-01-01T00:00:00Z",
@@ -44,6 +46,7 @@ func TestPeriodicTrigger_RoundTrip(t *testing.T) {
 // TestOnChangeTrigger_RoundTrip verifies OnChangeTrigger with all fields set
 // round-trips correctly.
 func TestOnChangeTrigger_RoundTrip(t *testing.T) {
+	t.Parallel()
 	original := yangpush.OnChangeTrigger{
 		DampeningPeriod: 500,
 		SyncOnStart:     &struct{}{},
@@ -71,6 +74,7 @@ func TestOnChangeTrigger_RoundTrip(t *testing.T) {
 // TestPushUpdate_RoundTrip verifies PushUpdate with all fields, including
 // an Updates body that must remain as raw XML (not escaped text).
 func TestPushUpdate_RoundTrip(t *testing.T) {
+	t.Parallel()
 	updatesBody := []byte(`<interfaces xmlns="urn:ietf:params:xml:ns:yang:ietf-interfaces"><interface><name>eth0</name><oper-status>up</oper-status></interface></interfaces>`)
 
 	original := yangpush.PushUpdate{
@@ -103,6 +107,7 @@ func TestPushUpdate_RoundTrip(t *testing.T) {
 
 // TestPushChangeUpdate_RoundTrip verifies PushChangeUpdate with a changes body.
 func TestPushChangeUpdate_RoundTrip(t *testing.T) {
+	t.Parallel()
 	changesBody := []byte(`<edit><target>/interfaces/interface[name='eth1']</target><operation>create</operation></edit>`)
 
 	original := yangpush.PushChangeUpdate{
@@ -131,6 +136,7 @@ func TestPushChangeUpdate_RoundTrip(t *testing.T) {
 // TestOmitEmptyFields verifies that optional fields on trigger types are
 // omitted from marshaled XML when not set.
 func TestOmitEmptyFields(t *testing.T) {
+	t.Parallel()
 	// PeriodicTrigger with only Period.
 	pt := yangpush.PeriodicTrigger{Period: 100}
 	b, err := xml.Marshal(pt)

@@ -22,11 +22,12 @@ import (
 	"testing"
 	"time"
 
-	netconf "github.com/GabrielNunesIT/netconf/netconf"
-	"github.com/GabrielNunesIT/netconf/netconf/transport"
 	cryptotls "crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+
+	netconf "github.com/GabrielNunesIT/netconf/netconf"
+	"github.com/GabrielNunesIT/netconf/netconf/transport"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -42,6 +43,7 @@ import (
 //  5. A message written by the client is readable by the server (transport
 //     framing is active end-to-end).
 func TestCallHome_TLSTransport(t *testing.T) {
+	t.Parallel()
 	caps := netconf.NewCapabilitySet([]string{netconf.BaseCap10, netconf.BaseCap11})
 
 	// Build TLS configs using the shared cert helpers from tls_test.go.

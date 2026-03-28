@@ -22,6 +22,7 @@ func caps(cs ...string) netconf.CapabilitySet {
 // ── happy path: both peers support base:1.1 ───────────────────────────────────
 
 func TestSession_BothSupport11_UpgradesToChunked(t *testing.T) {
+	t.Parallel()
 	clientT, serverT := transport.NewLoopback()
 	defer clientT.Close()
 	defer serverT.Close()
@@ -61,12 +62,13 @@ func TestSession_BothSupport11_UpgradesToChunked(t *testing.T) {
 // ── fallback to EOM: server only advertises base:1.0 ─────────────────────────
 
 func TestSession_ServerOnly10_StaysEOM(t *testing.T) {
+	t.Parallel()
 	clientT, serverT := transport.NewLoopback()
 	defer clientT.Close()
 	defer serverT.Close()
 
-	serverCaps := caps(netconf.BaseCap10)                     // server supports 1.0 only
-	clientCaps := caps(netconf.BaseCap10, netconf.BaseCap11)  // client also supports 1.1
+	serverCaps := caps(netconf.BaseCap10)                    // server supports 1.0 only
+	clientCaps := caps(netconf.BaseCap10, netconf.BaseCap11) // client also supports 1.1
 
 	var (
 		wg      sync.WaitGroup
@@ -91,6 +93,7 @@ func TestSession_ServerOnly10_StaysEOM(t *testing.T) {
 // ── fallback to EOM: client only advertises base:1.0 ─────────────────────────
 
 func TestSession_ClientOnly10_StaysEOM(t *testing.T) {
+	t.Parallel()
 	clientT, serverT := transport.NewLoopback()
 	defer clientT.Close()
 	defer serverT.Close()
@@ -120,6 +123,7 @@ func TestSession_ClientOnly10_StaysEOM(t *testing.T) {
 // ── capability intersection: extra capabilities are visible on both sides ─────
 
 func TestSession_CapabilityIntersection(t *testing.T) {
+	t.Parallel()
 	clientT, serverT := transport.NewLoopback()
 	defer clientT.Close()
 	defer serverT.Close()
@@ -160,8 +164,10 @@ func TestSession_CapabilityIntersection(t *testing.T) {
 // ── session-id propagation ─────────────────────────────────────────────────────
 
 func TestSession_SessionIDPropagation(t *testing.T) {
+	t.Parallel()
 	for _, id := range []uint32{1, 42, 1000, 4294967295} {
 		t.Run("id="+strconv.FormatUint(uint64(id), 10), func(t *testing.T) {
+			t.Parallel()
 			clientT, serverT := transport.NewLoopback()
 			defer clientT.Close()
 			defer serverT.Close()
@@ -190,6 +196,7 @@ func TestSession_SessionIDPropagation(t *testing.T) {
 // an error when the server hello omits base:1.0. We inject a raw hello via the
 // loopback to simulate a misbehaving server.
 func TestSession_ClientRejects_MissingBase10(t *testing.T) {
+	t.Parallel()
 	clientT, serverT := transport.NewLoopback()
 	defer clientT.Close()
 	defer serverT.Close()
@@ -226,6 +233,7 @@ func TestSession_ClientRejects_MissingBase10(t *testing.T) {
 // TestSession_ServerRejects_MissingBase10 proves that ServerSession returns
 // an error when the client hello omits base:1.0.
 func TestSession_ServerRejects_MissingBase10(t *testing.T) {
+	t.Parallel()
 	clientT, serverT := transport.NewLoopback()
 	defer clientT.Close()
 	defer serverT.Close()
@@ -258,6 +266,7 @@ func TestSession_ServerRejects_MissingBase10(t *testing.T) {
 // ── local capabilities accessible ─────────────────────────────────────────────
 
 func TestSession_LocalCapabilitiesAccessor(t *testing.T) {
+	t.Parallel()
 	clientT, serverT := transport.NewLoopback()
 	defer clientT.Close()
 	defer serverT.Close()

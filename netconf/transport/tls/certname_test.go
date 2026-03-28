@@ -33,6 +33,7 @@ func fp(raw []byte) []byte {
 // TestCertToName_MapTypeSpecified verifies that a fixed username from AuxData
 // is returned when MapTypeSpecified matches.
 func TestCertToName_MapTypeSpecified(t *testing.T) {
+	t.Parallel()
 	cert := syntheticCert([]byte("raw-leaf"), "", nil, nil, nil)
 	maps := []MapEntry{
 		{Fingerprint: fp(cert.Raw), MapType: MapTypeSpecified, AuxData: "admin"},
@@ -50,6 +51,7 @@ func TestCertToName_MapTypeSpecified(t *testing.T) {
 // TestCertToName_MapTypeSANRFC822Name verifies rfc822Name extraction with host
 // lowercasing.
 func TestCertToName_MapTypeSANRFC822Name(t *testing.T) {
+	t.Parallel()
 	cert := syntheticCert([]byte("raw-email"), "", []string{"Alice@Example.COM"}, nil, nil)
 	maps := []MapEntry{
 		{Fingerprint: fp(cert.Raw), MapType: MapTypeSANRFC822Name},
@@ -68,6 +70,7 @@ func TestCertToName_MapTypeSANRFC822Name(t *testing.T) {
 // TestCertToName_MapTypeSANDNSName verifies dNSName extraction with full
 // lowercasing.
 func TestCertToName_MapTypeSANDNSName(t *testing.T) {
+	t.Parallel()
 	cert := syntheticCert([]byte("raw-dns"), "", nil, []string{"Router.Example.Net"}, nil)
 	maps := []MapEntry{
 		{Fingerprint: fp(cert.Raw), MapType: MapTypeSANDNSName},
@@ -84,6 +87,7 @@ func TestCertToName_MapTypeSANDNSName(t *testing.T) {
 
 // TestCertToName_MapTypeSANIPAddress_IPv4 verifies IPv4 dotted-quad formatting.
 func TestCertToName_MapTypeSANIPAddress_IPv4(t *testing.T) {
+	t.Parallel()
 	ip := net.ParseIP("192.0.2.1")
 	cert := syntheticCert([]byte("raw-ipv4"), "", nil, nil, []net.IP{ip})
 	maps := []MapEntry{
@@ -102,6 +106,7 @@ func TestCertToName_MapTypeSANIPAddress_IPv4(t *testing.T) {
 // TestCertToName_MapTypeSANIPAddress_IPv6 verifies that IPv6 is formatted as
 // 32 lowercase hex characters with no colons (RFC 7589 §7 requirement).
 func TestCertToName_MapTypeSANIPAddress_IPv6(t *testing.T) {
+	t.Parallel()
 	ip := net.ParseIP("2001:db8::1")
 	cert := syntheticCert([]byte("raw-ipv6"), "", nil, nil, []net.IP{ip})
 	maps := []MapEntry{
@@ -129,6 +134,7 @@ func TestCertToName_MapTypeSANIPAddress_IPv6(t *testing.T) {
 // colon appears in an IPv6-derived username (common pitfall if net.IP.String()
 // is used instead of hex.EncodeToString).
 func TestCertToName_MapTypeSANIPAddress_IPv6_NoColons(t *testing.T) {
+	t.Parallel()
 	ips := []net.IP{
 		net.ParseIP("::1"),
 		net.ParseIP("fe80::1"),
@@ -164,6 +170,7 @@ func TestCertToName_MapTypeSANIPAddress_IPv6_NoColons(t *testing.T) {
 // TestCertToName_MapTypeSANAny_RFC822First verifies that MapTypeSANAny returns
 // the rfc822Name when all three SAN types are present.
 func TestCertToName_MapTypeSANAny_RFC822First(t *testing.T) {
+	t.Parallel()
 	ip := net.ParseIP("10.0.0.1")
 	cert := syntheticCert([]byte("raw-any"),
 		"cn-name",
@@ -187,6 +194,7 @@ func TestCertToName_MapTypeSANAny_RFC822First(t *testing.T) {
 // TestCertToName_MapTypeSANAny_DNSFallback verifies that MapTypeSANAny falls
 // through to dNSName when no rfc822Name is present.
 func TestCertToName_MapTypeSANAny_DNSFallback(t *testing.T) {
+	t.Parallel()
 	ip := net.ParseIP("10.0.0.2")
 	cert := syntheticCert([]byte("raw-any-dns"),
 		"cn-name",
@@ -210,6 +218,7 @@ func TestCertToName_MapTypeSANAny_DNSFallback(t *testing.T) {
 // TestCertToName_MapTypeSANAny_IPFallback verifies that MapTypeSANAny falls
 // through to iPAddress when neither rfc822Name nor dNSName is present.
 func TestCertToName_MapTypeSANAny_IPFallback(t *testing.T) {
+	t.Parallel()
 	ip := net.ParseIP("198.51.100.5")
 	cert := syntheticCert([]byte("raw-any-ip"),
 		"cn-name",
@@ -232,6 +241,7 @@ func TestCertToName_MapTypeSANAny_IPFallback(t *testing.T) {
 // TestCertToName_MapTypeCommonName verifies that the Subject.CommonName is
 // returned for MapTypeCommonName.
 func TestCertToName_MapTypeCommonName(t *testing.T) {
+	t.Parallel()
 	cert := syntheticCert([]byte("raw-cn"), "device-router-01", nil, nil, nil)
 	maps := []MapEntry{
 		{Fingerprint: fp(cert.Raw), MapType: MapTypeCommonName},
@@ -249,6 +259,7 @@ func TestCertToName_MapTypeCommonName(t *testing.T) {
 // TestCertToName_ExactCertFingerprintMatch explicitly tests that the SHA-256
 // fingerprint of cert.Raw drives the exact-cert match path.
 func TestCertToName_ExactCertFingerprintMatch(t *testing.T) {
+	t.Parallel()
 	rawA := []byte("raw-bytes-A")
 	rawB := []byte("raw-bytes-B")
 	certA := syntheticCert(rawA, "cert-a", nil, nil, nil)
@@ -276,6 +287,7 @@ func TestCertToName_ExactCertFingerprintMatch(t *testing.T) {
 // match path: the entry fingerprint identifies a CA cert in verifiedChains,
 // and the username is still extracted from the leaf cert.
 func TestCertToName_CAChainFingerprintMatch(t *testing.T) {
+	t.Parallel()
 	leafRaw := []byte("raw-leaf-for-chain")
 	caRaw := []byte("raw-ca")
 
@@ -302,6 +314,7 @@ func TestCertToName_CAChainFingerprintMatch(t *testing.T) {
 // TestCertToName_CAChainMatch_MultipleChains verifies that multiple chains are
 // searched exhaustively for the matching CA fingerprint.
 func TestCertToName_CAChainMatch_MultipleChains(t *testing.T) {
+	t.Parallel()
 	leafRaw := []byte("raw-leaf-multi-chain")
 	ca1Raw := []byte("raw-ca1")
 	ca2Raw := []byte("raw-ca2")
@@ -331,6 +344,7 @@ func TestCertToName_CAChainMatch_MultipleChains(t *testing.T) {
 // TestCertToName_NoMatch verifies that ("", false) is returned when no entry
 // fingerprint matches.
 func TestCertToName_NoMatch(t *testing.T) {
+	t.Parallel()
 	cert := syntheticCert([]byte("raw-no-match"), "nobody", nil, nil, nil)
 	wrongFP := fp([]byte("completely-different-raw"))
 	maps := []MapEntry{
@@ -348,6 +362,7 @@ func TestCertToName_NoMatch(t *testing.T) {
 
 // TestCertToName_EmptyMaps verifies that an empty map list returns no match.
 func TestCertToName_EmptyMaps(t *testing.T) {
+	t.Parallel()
 	cert := syntheticCert([]byte("raw-empty-maps"), "user", nil, nil, nil)
 	got, ok := DeriveUsername(cert, nil, nil)
 	if ok {
@@ -362,6 +377,7 @@ func TestCertToName_EmptyMaps(t *testing.T) {
 // when no SANs of the required type are present, and the algorithm continues to
 // the next entry.
 func TestCertToName_EmptySANList(t *testing.T) {
+	t.Parallel()
 	// Certificate has a CN but no SANs.
 	cert := syntheticCert([]byte("raw-no-san"), "fallback-cn", nil, nil, nil)
 
@@ -384,6 +400,7 @@ func TestCertToName_EmptySANList(t *testing.T) {
 // TestCertToName_OrderedFirstMatch verifies that the first matching and
 // non-empty entry wins (earlier entries take precedence).
 func TestCertToName_OrderedFirstMatch(t *testing.T) {
+	t.Parallel()
 	cert := syntheticCert([]byte("raw-ordered"), "cn-value",
 		[]string{"first@example.com"}, nil, nil)
 
@@ -405,6 +422,7 @@ func TestCertToName_OrderedFirstMatch(t *testing.T) {
 // TestCertToName_SANAny_NoSANs verifies MapTypeSANAny returns no match when
 // no SANs of any type are present.
 func TestCertToName_SANAny_NoSANs(t *testing.T) {
+	t.Parallel()
 	cert := syntheticCert([]byte("raw-san-any-empty"), "just-a-cn", nil, nil, nil)
 	maps := []MapEntry{
 		{Fingerprint: fp(cert.Raw), MapType: MapTypeSANAny},
@@ -421,6 +439,7 @@ func TestCertToName_SANAny_NoSANs(t *testing.T) {
 // TestCertToName_RFC822_AlreadyLowercaseHost verifies that a host already in
 // lowercase passes through unchanged.
 func TestCertToName_RFC822_AlreadyLowercaseHost(t *testing.T) {
+	t.Parallel()
 	cert := syntheticCert([]byte("raw-rfc822-lower"), "",
 		[]string{"user@example.com"}, nil, nil)
 	maps := []MapEntry{
@@ -437,6 +456,7 @@ func TestCertToName_RFC822_AlreadyLowercaseHost(t *testing.T) {
 
 // TestCertToName_certFingerprint is a unit test for the internal helper.
 func TestCertToName_certFingerprint(t *testing.T) {
+	t.Parallel()
 	raw := []byte("test-raw-data")
 	cert := &x509.Certificate{Raw: raw}
 	got := certFingerprint(cert)

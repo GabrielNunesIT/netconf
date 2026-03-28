@@ -12,18 +12,21 @@ import (
 // TestNacm_NamespaceConstant verifies the NacmNS constant is the correct
 // YANG module namespace URI from RFC 8341.
 func TestNacm_NamespaceConstant(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, "urn:ietf:params:xml:ns:yang:ietf-netconf-acm", nacm.NacmNS)
 	assert.Equal(t, nacm.NacmNS, nacm.CapabilityURI, "CapabilityURI must equal NacmNS")
 }
 
 // TestNacm_ActionValues verifies the Action constants match RFC 8341 §3.2.6.
 func TestNacm_ActionValues(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, "permit", nacm.ActionPermit)
 	assert.Equal(t, "deny", nacm.ActionDeny)
 }
 
 // TestNacm_RuleTypeValues verifies the RuleType constants.
 func TestNacm_RuleTypeValues(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, "protocol-operation", nacm.RuleTypeProtocolOperation)
 	assert.Equal(t, "notification", nacm.RuleTypeNotification)
 	assert.Equal(t, "data-node", nacm.RuleTypeDataNode)
@@ -32,6 +35,7 @@ func TestNacm_RuleTypeValues(t *testing.T) {
 // TestNacm_MinimalConfig verifies a minimal Nacm config (just EnableNacm=true)
 // encodes without error and produces valid XML.
 func TestNacm_MinimalConfig(t *testing.T) {
+	t.Parallel()
 	cfg := nacm.Nacm{
 		EnableNacm: true,
 	}
@@ -50,6 +54,7 @@ func TestNacm_MinimalConfig(t *testing.T) {
 // deny actions. It marshals the value to XML, checks key structural properties,
 // then unmarshals back and asserts the result is equal to the original.
 func TestNacm_RoundTrip(t *testing.T) {
+	t.Parallel()
 	original := nacm.Nacm{
 		EnableNacm:           true,
 		ReadDefault:          nacm.ActionPermit,
@@ -218,6 +223,7 @@ func TestNacm_RoundTrip(t *testing.T) {
 
 // TestNacm_DenyCounters verifies that deny counters round-trip correctly.
 func TestNacm_DenyCounters(t *testing.T) {
+	t.Parallel()
 	cfg := nacm.Nacm{
 		EnableNacm:          true,
 		DeniedOperations:    5,
@@ -241,6 +247,7 @@ func TestNacm_DenyCounters(t *testing.T) {
 // TestNacm_OmitEmptyFields verifies that optional fields with zero values are
 // omitted from the marshaled XML (prevent spurious empty elements).
 func TestNacm_OmitEmptyFields(t *testing.T) {
+	t.Parallel()
 	cfg := nacm.Nacm{
 		EnableNacm: true,
 	}

@@ -5,6 +5,7 @@
 package netconf
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -111,7 +112,7 @@ var urnRE = regexp.MustCompile(
 // format. It returns nil on success and a descriptive error otherwise.
 func ValidateURN(s string) error {
 	if s == "" {
-		return fmt.Errorf("capability URN must not be empty")
+		return errors.New("capability URN must not be empty")
 	}
 	if !strings.HasPrefix(s, "urn:ietf:params:netconf:") {
 		return fmt.Errorf("capability URN %q does not start with \"urn:ietf:params:netconf:\"", s)
@@ -134,8 +135,8 @@ func NewCapabilitySet(caps []string) CapabilitySet {
 
 // Contains reports whether the set contains the given capability URN.
 // The comparison is case-sensitive (URNs are case-sensitive per RFC 2141).
-func (cs CapabilitySet) Contains(cap Capability) bool {
-	return slices.Contains(cs, cap)
+func (cs CapabilitySet) Contains(c Capability) bool {
+	return slices.Contains(cs, c)
 }
 
 // Supports11 reports whether the capability set includes base:1.1.

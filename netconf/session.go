@@ -14,6 +14,7 @@ package netconf
 
 import (
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 
@@ -120,7 +121,7 @@ func ClientSession(trp transport.Transport, localCaps CapabilitySet) (*Session, 
 
 	// Session-id is assigned by the server and carried in its hello.
 	if remote.SessionID == 0 {
-		return nil, fmt.Errorf("session: client: server hello missing session-id")
+		return nil, errors.New("session: client: server hello missing session-id")
 	}
 
 	framing, err := negotiateFraming(trp, localCaps, remoteCaps)
@@ -237,7 +238,7 @@ func negotiateFraming(trp transport.Transport, local, remote CapabilitySet) (Fra
 		if u, ok := trp.(transport.Upgrader); ok {
 			u.Upgrade()
 		} else {
-			return FramingEOM, fmt.Errorf("framing upgrade required but transport does not implement Upgrader")
+			return FramingEOM, errors.New("framing upgrade required but transport does not implement Upgrader")
 		}
 		return FramingChunked, nil
 	}

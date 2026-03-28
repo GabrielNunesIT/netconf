@@ -17,7 +17,7 @@ import (
 // (strings.NewReader is read-only and does not satisfy io.ReadWriter).
 type readOnlyRW struct{ r *bytes.Reader }
 
-func newReadOnlyRW(b []byte) *readOnlyRW { return &readOnlyRW{r: bytes.NewReader(b)} }
+func newReadOnlyRW(b []byte) *readOnlyRW           { return &readOnlyRW{r: bytes.NewReader(b)} }
 func (ro *readOnlyRW) Read(p []byte) (int, error)  { return ro.r.Read(p) }
 func (ro *readOnlyRW) Write(p []byte) (int, error) { return len(p), nil } // discard
 
@@ -46,6 +46,7 @@ func framerRoundTrip(t *testing.T, framer *transport.Framer, msg []byte) []byte 
 // ── EOM mode: encoding ────────────────────────────────────────────────────────
 
 func TestEOM_MsgWriter_AppendsDelimiter(t *testing.T) {
+	t.Parallel()
 	buf := &bytes.Buffer{}
 	framer := transport.NewFramer(buf)
 
@@ -62,6 +63,7 @@ func TestEOM_MsgWriter_AppendsDelimiter(t *testing.T) {
 }
 
 func TestEOM_MsgWriter_EmptyBody(t *testing.T) {
+	t.Parallel()
 	buf := &bytes.Buffer{}
 	framer := transport.NewFramer(buf)
 
@@ -77,6 +79,7 @@ func TestEOM_MsgWriter_EmptyBody(t *testing.T) {
 // ── EOM mode: decoding ────────────────────────────────────────────────────────
 
 func TestEOM_MsgReader_StripDelimiter(t *testing.T) {
+	t.Parallel()
 	wire := []byte("<rpc message-id=\"1\"><get/></rpc>]]>]]>")
 	framer := transport.NewFramer(newReadOnlyRW(wire))
 
@@ -91,6 +94,7 @@ func TestEOM_MsgReader_StripDelimiter(t *testing.T) {
 }
 
 func TestEOM_MsgReader_UnexpectedEOF(t *testing.T) {
+	t.Parallel()
 	// Message without terminating delimiter → should error.
 	framer := transport.NewFramer(newReadOnlyRW([]byte("<hello/>")))
 	_, err := framer.MsgReader()
@@ -102,6 +106,7 @@ func TestEOM_MsgReader_UnexpectedEOF(t *testing.T) {
 // ── EOM mode: round-trip ──────────────────────────────────────────────────────
 
 func TestEOM_RoundTrip_Single(t *testing.T) {
+	t.Parallel()
 	buf := &bytes.Buffer{}
 	framer := transport.NewFramer(buf)
 
@@ -111,6 +116,7 @@ func TestEOM_RoundTrip_Single(t *testing.T) {
 }
 
 func TestEOM_RoundTrip_MultipleMessages(t *testing.T) {
+	t.Parallel()
 	buf := &bytes.Buffer{}
 	framer := transport.NewFramer(buf)
 
@@ -147,6 +153,7 @@ func TestEOM_RoundTrip_MultipleMessages(t *testing.T) {
 // message sentinel regardless. This test documents that behaviour.
 
 func TestEOM_BodyContainsDelimiter_SplitsAtFirst(t *testing.T) {
+	t.Parallel()
 	// Wire: two "messages" where the first body itself contains ]]>]]>.
 	// The reader treats the first ]]>]]> as EOM sentinel: body1 = "BEFORE",
 	// and the remainder "AFTER]]>]]>" is the next message.
@@ -172,6 +179,7 @@ func TestEOM_BodyContainsDelimiter_SplitsAtFirst(t *testing.T) {
 // ── Chunked mode: encoding ────────────────────────────────────────────────────
 
 func TestChunked_MsgWriter_Format(t *testing.T) {
+	t.Parallel()
 	buf := &bytes.Buffer{}
 	framer := transport.NewFramer(buf)
 	framer.Upgrade()
@@ -191,6 +199,7 @@ func TestChunked_MsgWriter_Format(t *testing.T) {
 }
 
 func TestChunked_MsgWriter_EmptyBody(t *testing.T) {
+	t.Parallel()
 	buf := &bytes.Buffer{}
 	framer := transport.NewFramer(buf)
 	framer.Upgrade()
@@ -208,6 +217,7 @@ func TestChunked_MsgWriter_EmptyBody(t *testing.T) {
 // ── Chunked mode: decoding ────────────────────────────────────────────────────
 
 func TestChunked_MsgReader_SingleChunk(t *testing.T) {
+	t.Parallel()
 	msg := "<get/>"
 	wire := fmt.Appendf(nil, "\n#%d\n%s\n##\n", len(msg), msg)
 	framer := transport.NewFramer(newReadOnlyRW(wire))
@@ -222,6 +232,7 @@ func TestChunked_MsgReader_SingleChunk(t *testing.T) {
 }
 
 func TestChunked_MsgReader_MultipleChunks(t *testing.T) {
+	t.Parallel()
 	// Two chunks concatenated before the end-of-chunks marker.
 	part1 := "<rpc message-id=\"1\">"
 	part2 := "<get/></rpc>"
@@ -243,6 +254,7 @@ func TestChunked_MsgReader_MultipleChunks(t *testing.T) {
 // ── Chunked mode: round-trip ──────────────────────────────────────────────────
 
 func TestChunked_RoundTrip_Single(t *testing.T) {
+	t.Parallel()
 	buf := &bytes.Buffer{}
 	framer := transport.NewFramer(buf)
 	framer.Upgrade()
@@ -253,6 +265,7 @@ func TestChunked_RoundTrip_Single(t *testing.T) {
 }
 
 func TestChunked_RoundTrip_MultipleMessages(t *testing.T) {
+	t.Parallel()
 	buf := &bytes.Buffer{}
 	framer := transport.NewFramer(buf)
 	framer.Upgrade()
@@ -284,6 +297,7 @@ func TestChunked_RoundTrip_MultipleMessages(t *testing.T) {
 // ── Chunked mode: edge cases ──────────────────────────────────────────────────
 
 func TestChunked_LargeMessage_ChunkSizeHeader(t *testing.T) {
+	t.Parallel()
 	// 1 MiB message — verify chunk size in header is correct.
 	msg := make([]byte, 1<<20)
 	for i := range msg {
@@ -316,6 +330,7 @@ func TestChunked_LargeMessage_ChunkSizeHeader(t *testing.T) {
 }
 
 func TestChunked_MsgReader_ZeroSizeChunk_Error(t *testing.T) {
+	t.Parallel()
 	// Chunk size = 0 is illegal per RFC 6242 §4.2.
 	wire := []byte("\n#0\ndata\n##\n")
 	framer := transport.NewFramer(newReadOnlyRW(wire))
@@ -328,6 +343,7 @@ func TestChunked_MsgReader_ZeroSizeChunk_Error(t *testing.T) {
 }
 
 func TestChunked_MsgReader_NonNumericSize_Error(t *testing.T) {
+	t.Parallel()
 	// Chunk size header with non-digits.
 	wire := []byte("\n#abc\ndata\n##\n")
 	framer := transport.NewFramer(newReadOnlyRW(wire))
@@ -338,6 +354,7 @@ func TestChunked_MsgReader_NonNumericSize_Error(t *testing.T) {
 }
 
 func TestChunked_MsgReader_MissingLeadingNewline_Error(t *testing.T) {
+	t.Parallel()
 	// Frame starting with '#' instead of '\n' is malformed.
 	wire := []byte("#5\nhello\n##\n")
 	framer := transport.NewFramer(newReadOnlyRW(wire))
@@ -348,6 +365,7 @@ func TestChunked_MsgReader_MissingLeadingNewline_Error(t *testing.T) {
 }
 
 func TestChunked_MsgReader_MissingHash_Error(t *testing.T) {
+	t.Parallel()
 	// Frame has '\n' but next byte is not '#'.
 	wire := []byte("\nXnotachunk")
 	framer := transport.NewFramer(newReadOnlyRW(wire))
@@ -364,6 +382,7 @@ func TestChunked_MsgReader_MissingHash_Error(t *testing.T) {
 // bytes.Buffer draining on read: we write to captureBuf, but read via a
 // readOnlyRW constructed from a snapshot of captureBuf before reading.
 func TestUpgrade_SwitchesMode_MidStream(t *testing.T) {
+	t.Parallel()
 	// We use separate write-capture and read-supply buffers so that reading
 	// does not drain the capture buffer we inspect at the end.
 	var captureBuf bytes.Buffer
@@ -427,6 +446,7 @@ func TestUpgrade_SwitchesMode_MidStream(t *testing.T) {
 }
 
 func TestUpgrade_PanicsIfCalledTwice(t *testing.T) {
+	t.Parallel()
 	framer := transport.NewFramer(&bytes.Buffer{})
 	framer.Upgrade()
 	assert.Panics(t, func() {

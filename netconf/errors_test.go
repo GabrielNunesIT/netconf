@@ -15,6 +15,7 @@ import (
 // TestRPCError_MarshalUnmarshal verifies that a fully-populated RPCError
 // round-trips through xml.Marshal → xml.Unmarshal with all fields preserved.
 func TestRPCError_MarshalUnmarshal(t *testing.T) {
+	t.Parallel()
 	orig := netconf.RPCError{
 		Type:     "application",
 		Tag:      "invalid-value",
@@ -42,6 +43,7 @@ func TestRPCError_MarshalUnmarshal(t *testing.T) {
 // TestRPCError_Error verifies that the Error() method returns a string that
 // contains the type, tag, severity, and message values.
 func TestRPCError_Error(t *testing.T) {
+	t.Parallel()
 	e := netconf.RPCError{
 		Type:     "protocol",
 		Tag:      "missing-attribute",
@@ -59,6 +61,7 @@ func TestRPCError_Error(t *testing.T) {
 // TestRPCError_OptionalFieldsOmitted verifies that optional fields (AppTag,
 // Path, Message) are absent from XML output when their values are zero.
 func TestRPCError_OptionalFieldsOmitted(t *testing.T) {
+	t.Parallel()
 	e := netconf.RPCError{
 		Type:     "rpc",
 		Tag:      "unknown-element",
@@ -85,6 +88,7 @@ func TestRPCError_OptionalFieldsOmitted(t *testing.T) {
 // TestParseRPCErrors_SingleError verifies extraction of one <rpc-error> element
 // from RPCReply.Body.
 func TestParseRPCErrors_SingleError(t *testing.T) {
+	t.Parallel()
 	body := []byte(`<rpc-error>
 		<error-type>application</error-type>
 		<error-tag>invalid-value</error-tag>
@@ -106,6 +110,7 @@ func TestParseRPCErrors_SingleError(t *testing.T) {
 // TestParseRPCErrors_MultipleErrors verifies that two sibling <rpc-error>
 // elements are each decoded into separate RPCError values.
 func TestParseRPCErrors_MultipleErrors(t *testing.T) {
+	t.Parallel()
 	body := []byte(`<rpc-error>
 		<error-type>protocol</error-type>
 		<error-tag>unknown-element</error-tag>
@@ -134,6 +139,7 @@ func TestParseRPCErrors_MultipleErrors(t *testing.T) {
 // TestParseRPCErrors_OkReply verifies that an RPCReply with an empty Body
 // returns a nil slice with no error — this is the normal success case.
 func TestParseRPCErrors_OkReply(t *testing.T) {
+	t.Parallel()
 	reply := &netconf.RPCReply{
 		Ok:   &struct{}{},
 		Body: nil,
@@ -147,6 +153,7 @@ func TestParseRPCErrors_OkReply(t *testing.T) {
 // TestParseRPCErrors_ComplexErrorInfo verifies that the Info field captures the
 // raw inner XML of arbitrary <error-info> children.
 func TestParseRPCErrors_ComplexErrorInfo(t *testing.T) {
+	t.Parallel()
 	body := []byte(`<rpc-error>
 		<error-type>application</error-type>
 		<error-tag>data-exists</error-tag>
@@ -172,6 +179,7 @@ func TestParseRPCErrors_ComplexErrorInfo(t *testing.T) {
 // TestParseRPCErrors_EmptyBody confirms that a Body with only whitespace is
 // treated the same as a nil Body and returns (nil, nil).
 func TestParseRPCErrors_EmptyBody(t *testing.T) {
+	t.Parallel()
 	reply := &netconf.RPCReply{Body: []byte("  \n  ")}
 
 	// The wrapper is "<wrapper>  \n  </wrapper>" — valid XML, no rpc-error children.
@@ -183,6 +191,7 @@ func TestParseRPCErrors_EmptyBody(t *testing.T) {
 // TestRPCError_ImplementsErrorInterface confirms the type assertion at compile
 // time — RPCError must satisfy the built-in error interface.
 func TestRPCError_ImplementsErrorInterface(t *testing.T) {
+	t.Parallel()
 	var _ error = netconf.RPCError{}
 	// If the above compiles, the interface is satisfied.
 }
@@ -190,6 +199,7 @@ func TestRPCError_ImplementsErrorInterface(t *testing.T) {
 // TestRPCError_XMLElementName verifies that marshaled RPCError uses the
 // element name <rpc-error> as required by RFC 6241 §4.3.
 func TestRPCError_XMLElementName(t *testing.T) {
+	t.Parallel()
 	e := netconf.RPCError{Type: "rpc", Tag: "bad-attribute", Severity: "error"}
 	data, err := xml.Marshal(e)
 	require.NoError(t, err)

@@ -106,10 +106,10 @@ type GlobalLock struct {
 //   - LockedNode:  list of locked node canonical XPath expressions.
 //   - Select:      list of XPath 1.0 select expressions used when acquiring the lock.
 type PartialLockInfo struct {
-	LockID      uint32   `xml:"lock-id"`
-	LockedTime  string   `xml:"locked-time"`
-	LockedNode  []string `xml:"locked-node"`
-	Select      []string `xml:"select"`
+	LockID     uint32   `xml:"lock-id"`
+	LockedTime string   `xml:"locked-time"`
+	LockedNode []string `xml:"locked-node"`
+	Select     []string `xml:"select"`
 }
 
 // Schema describes one schema available for retrieval via get-schema
@@ -120,7 +120,7 @@ type PartialLockInfo struct {
 //   - Format:     the schema language format (e.g. "yang", "yin", "xsd").
 //   - Namespace:  the XML namespace the schema defines.
 //   - Location:   list of retrieval locations; the special value "NETCONF"
-//                 indicates the schema is available via get-schema.
+//     indicates the schema is available via get-schema.
 type Schema struct {
 	Identifier string   `xml:"identifier"`
 	Version    string   `xml:"version"`
@@ -163,14 +163,14 @@ type Session struct {
 //   - OutRPCErrors:      number of <rpc-reply> messages sent with <rpc-error>.
 //   - OutNotifications:  number of <notification> messages sent.
 type Statistics struct {
-	NetconfStartTime  string `xml:"netconf-start-time"`
-	InBadHellos       uint32 `xml:"in-bad-hellos"`
-	InSessions        uint32 `xml:"in-sessions"`
-	DroppedSessions   uint32 `xml:"dropped-sessions"`
-	InRPCs            uint32 `xml:"in-rpcs"`
-	InBadRPCs         uint32 `xml:"in-bad-rpcs"`
-	OutRPCErrors      uint32 `xml:"out-rpc-errors"`
-	OutNotifications  uint32 `xml:"out-notifications"`
+	NetconfStartTime string `xml:"netconf-start-time"`
+	InBadHellos      uint32 `xml:"in-bad-hellos"`
+	InSessions       uint32 `xml:"in-sessions"`
+	DroppedSessions  uint32 `xml:"dropped-sessions"`
+	InRPCs           uint32 `xml:"in-rpcs"`
+	InBadRPCs        uint32 `xml:"in-bad-rpcs"`
+	OutRPCErrors     uint32 `xml:"out-rpc-errors"`
+	OutNotifications uint32 `xml:"out-notifications"`
 }
 
 // GetSchemaRequest is the input payload for the get-schema RPC (RFC 6022 §3.2).

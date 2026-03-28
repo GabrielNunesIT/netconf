@@ -119,8 +119,8 @@ type Nacm struct {
 	DeniedNotifications uint32 `xml:"denied-notifications,omitempty"`
 
 	// Access control lists
-	Groups    *Groups      `xml:"groups,omitempty"`
-	RuleLists []RuleList   `xml:"rule-list"`
+	Groups    *Groups    `xml:"groups,omitempty"`
+	RuleLists []RuleList `xml:"rule-list"`
 }
 
 // Groups is the /nacm/groups container (RFC 8341 §3.2.2).

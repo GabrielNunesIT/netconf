@@ -11,6 +11,7 @@ import (
 // ── Base capability constants ─────────────────────────────────────────────────
 
 func TestBaseCapabilityConstants(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, "urn:ietf:params:netconf:base:1.0", netconf.BaseCap10)
 	assert.Equal(t, "urn:ietf:params:netconf:base:1.1", netconf.BaseCap11)
 }
@@ -18,6 +19,7 @@ func TestBaseCapabilityConstants(t *testing.T) {
 // ── ValidateURN ───────────────────────────────────────────────────────────────
 
 func TestValidateURN_AcceptsValidBase(t *testing.T) {
+	t.Parallel()
 	valid := []string{
 		"urn:ietf:params:netconf:base:1.0",
 		"urn:ietf:params:netconf:base:1.1",
@@ -30,6 +32,7 @@ func TestValidateURN_AcceptsValidBase(t *testing.T) {
 }
 
 func TestValidateURN_AcceptsValidCapability(t *testing.T) {
+	t.Parallel()
 	valid := []string{
 		"urn:ietf:params:netconf:capability:rollback-on-error:1.0",
 		"urn:ietf:params:netconf:capability:validate:1.1",
@@ -47,12 +50,14 @@ func TestValidateURN_AcceptsValidCapability(t *testing.T) {
 }
 
 func TestValidateURN_RejectsEmpty(t *testing.T) {
+	t.Parallel()
 	err := netconf.ValidateURN("")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "empty")
 }
 
 func TestValidateURN_RejectsWrongPrefix(t *testing.T) {
+	t.Parallel()
 	bad := []string{
 		"urn:ietf:params:xml:ns:netconf:base:1.0", // XML namespace, not capability URN
 		"http://example.com/netconf",
@@ -66,16 +71,17 @@ func TestValidateURN_RejectsWrongPrefix(t *testing.T) {
 }
 
 func TestValidateURN_RejectsMalformed(t *testing.T) {
+	t.Parallel()
 	bad := []string{
-		"urn:ietf:params:netconf:",                                // too short
-		"urn:ietf:params:netconf:base:",                           // missing version
-		"urn:ietf:params:netconf:base:1",                          // version not N.N
-		"urn:ietf:params:netconf:capability:",                     // missing name and version
-		"urn:ietf:params:netconf:capability:rollback-on-error",    // missing version
-		"urn:ietf:params:netconf:capability:rollback-on-error:1",  // version not N.N
-		"urn:ietf:params:netconf:capability::1.0",                 // empty name
-		"urn:ietf:params:netconf:capability:has space:1.0",        // space in name
-		"urn:ietf:params:netconf:something-else:1.0",              // unknown category
+		"urn:ietf:params:netconf:",                               // too short
+		"urn:ietf:params:netconf:base:",                          // missing version
+		"urn:ietf:params:netconf:base:1",                         // version not N.N
+		"urn:ietf:params:netconf:capability:",                    // missing name and version
+		"urn:ietf:params:netconf:capability:rollback-on-error",   // missing version
+		"urn:ietf:params:netconf:capability:rollback-on-error:1", // version not N.N
+		"urn:ietf:params:netconf:capability::1.0",                // empty name
+		"urn:ietf:params:netconf:capability:has space:1.0",       // space in name
+		"urn:ietf:params:netconf:something-else:1.0",             // unknown category
 	}
 	for _, urn := range bad {
 		err := netconf.ValidateURN(urn)
@@ -86,6 +92,7 @@ func TestValidateURN_RejectsMalformed(t *testing.T) {
 // ── CapabilitySet.Contains ────────────────────────────────────────────────────
 
 func TestCapabilitySet_Contains_Found(t *testing.T) {
+	t.Parallel()
 	cs := netconf.NewCapabilitySet([]string{
 		netconf.BaseCap10,
 		netconf.BaseCap11,
@@ -95,17 +102,20 @@ func TestCapabilitySet_Contains_Found(t *testing.T) {
 }
 
 func TestCapabilitySet_Contains_NotFound(t *testing.T) {
+	t.Parallel()
 	cs := netconf.NewCapabilitySet([]string{netconf.BaseCap10})
 	assert.False(t, cs.Contains(netconf.BaseCap11))
 	assert.False(t, cs.Contains("urn:ietf:params:netconf:capability:candidate:1.0"))
 }
 
 func TestCapabilitySet_Contains_Empty(t *testing.T) {
+	t.Parallel()
 	cs := netconf.NewCapabilitySet(nil)
 	assert.False(t, cs.Contains(netconf.BaseCap10))
 }
 
 func TestCapabilitySet_Contains_CaseSensitive(t *testing.T) {
+	t.Parallel()
 	// URNs are case-sensitive per RFC 2141.
 	cs := netconf.NewCapabilitySet([]string{
 		"URN:IETF:PARAMS:NETCONF:BASE:1.0",
@@ -117,21 +127,25 @@ func TestCapabilitySet_Contains_CaseSensitive(t *testing.T) {
 // ── CapabilitySet.Supports11 / Supports10 ────────────────────────────────────
 
 func TestCapabilitySet_Supports11_True(t *testing.T) {
+	t.Parallel()
 	cs := netconf.NewCapabilitySet([]string{netconf.BaseCap10, netconf.BaseCap11})
 	assert.True(t, cs.Supports11())
 }
 
 func TestCapabilitySet_Supports11_False(t *testing.T) {
+	t.Parallel()
 	cs := netconf.NewCapabilitySet([]string{netconf.BaseCap10})
 	assert.False(t, cs.Supports11())
 }
 
 func TestCapabilitySet_Supports10_True(t *testing.T) {
+	t.Parallel()
 	cs := netconf.NewCapabilitySet([]string{netconf.BaseCap10})
 	assert.True(t, cs.Supports10())
 }
 
 func TestCapabilitySet_Supports10_False(t *testing.T) {
+	t.Parallel()
 	cs := netconf.NewCapabilitySet([]string{netconf.BaseCap11})
 	assert.False(t, cs.Supports10())
 }
@@ -139,6 +153,7 @@ func TestCapabilitySet_Supports10_False(t *testing.T) {
 // ── Round-trip: capability URN survives marshal/unmarshal in Hello ────────────
 
 func TestCapability_SurvivesHelloRoundTrip(t *testing.T) {
+	t.Parallel()
 	// This cross-package test confirms the Capability type (plain string)
 	// passes through XML encoding unchanged.
 	caps := []string{
@@ -170,6 +185,7 @@ var allStandardCaps = []netconf.Capability{
 // TestStandardCapabilities_ValidURN verifies that every standard capability
 // constant passes ValidateURN, confirming the URN strings are correctly formed.
 func TestStandardCapabilities_ValidURN(t *testing.T) {
+	t.Parallel()
 	for _, cap := range allStandardCaps {
 		err := netconf.ValidateURN(cap)
 		assert.NoError(t, err, "capability constant %q must pass ValidateURN", cap)
@@ -179,6 +195,7 @@ func TestStandardCapabilities_ValidURN(t *testing.T) {
 // TestCapabilitySet_ContainsStandardCaps builds a CapabilitySet containing all
 // 8 new constants and verifies that Contains returns true for each one.
 func TestCapabilitySet_ContainsStandardCaps(t *testing.T) {
+	t.Parallel()
 	cs := netconf.NewCapabilitySet([]string{
 		netconf.CapabilityCandidate,
 		netconf.CapabilityConfirmedCommit,
@@ -198,6 +215,7 @@ func TestCapabilitySet_ContainsStandardCaps(t *testing.T) {
 // TestStandardCapabilities_Exact verifies that the constant string values
 // exactly match the URNs registered in IANA/RFC 6241 §8.
 func TestStandardCapabilities_Exact(t *testing.T) {
+	t.Parallel()
 	expected := map[netconf.Capability]string{
 		netconf.CapabilityCandidate:       "urn:ietf:params:netconf:capability:candidate:1.0",
 		netconf.CapabilityConfirmedCommit: "urn:ietf:params:netconf:capability:confirmed-commit:1.1",
@@ -218,6 +236,7 @@ func TestStandardCapabilities_Exact(t *testing.T) {
 // TestCapability_Notification_ValidURN verifies that CapabilityNotification passes
 // ValidateURN (RFC 7803 format compliance).
 func TestCapability_Notification_ValidURN(t *testing.T) {
+	t.Parallel()
 	err := netconf.ValidateURN(netconf.CapabilityNotification)
 	require.NoError(t, err, "CapabilityNotification must pass ValidateURN")
 }
@@ -225,6 +244,7 @@ func TestCapability_Notification_ValidURN(t *testing.T) {
 // TestCapability_Interleave_ValidURN verifies that CapabilityInterleave passes
 // ValidateURN (RFC 7803 format compliance).
 func TestCapability_Interleave_ValidURN(t *testing.T) {
+	t.Parallel()
 	err := netconf.ValidateURN(netconf.CapabilityInterleave)
 	require.NoError(t, err, "CapabilityInterleave must pass ValidateURN")
 }
@@ -232,6 +252,7 @@ func TestCapability_Interleave_ValidURN(t *testing.T) {
 // TestCapability_Notification_ExactValue verifies the exact URN string for
 // CapabilityNotification matches RFC 5277 §3.1.
 func TestCapability_Notification_ExactValue(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t,
 		"urn:ietf:params:netconf:capability:notification:1.0",
 		netconf.CapabilityNotification,
@@ -242,6 +263,7 @@ func TestCapability_Notification_ExactValue(t *testing.T) {
 // TestCapability_Interleave_ExactValue verifies the exact URN string for
 // CapabilityInterleave matches RFC 5277 §6.2.
 func TestCapability_Interleave_ExactValue(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t,
 		"urn:ietf:params:netconf:capability:interleave:1.0",
 		netconf.CapabilityInterleave,
@@ -252,6 +274,7 @@ func TestCapability_Interleave_ExactValue(t *testing.T) {
 // TestCapabilitySet_ContainsNotificationCaps verifies that a CapabilitySet
 // built with the notification constants correctly reports Contains for each.
 func TestCapabilitySet_ContainsNotificationCaps(t *testing.T) {
+	t.Parallel()
 	cs := netconf.NewCapabilitySet([]string{
 		netconf.CapabilityNotification,
 		netconf.CapabilityInterleave,
@@ -267,6 +290,7 @@ func TestCapabilitySet_ContainsNotificationCaps(t *testing.T) {
 // TestCapability_WithDefaults_ValidURN verifies that CapabilityWithDefaults passes
 // ValidateURN (RFC 7803 format compliance).
 func TestCapability_WithDefaults_ValidURN(t *testing.T) {
+	t.Parallel()
 	err := netconf.ValidateURN(netconf.CapabilityWithDefaults)
 	require.NoError(t, err, "CapabilityWithDefaults must pass ValidateURN")
 }
@@ -274,6 +298,7 @@ func TestCapability_WithDefaults_ValidURN(t *testing.T) {
 // TestCapability_WithDefaults_ExactValue verifies the exact URN string for
 // CapabilityWithDefaults matches RFC 6243 §4.
 func TestCapability_WithDefaults_ExactValue(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t,
 		"urn:ietf:params:netconf:capability:with-defaults:1.0",
 		netconf.CapabilityWithDefaults,
@@ -286,6 +311,7 @@ func TestCapability_WithDefaults_ExactValue(t *testing.T) {
 // TestCapability_PartialLock_ValidURN verifies that CapabilityPartialLock passes
 // ValidateURN (RFC 7803 format compliance).
 func TestCapability_PartialLock_ValidURN(t *testing.T) {
+	t.Parallel()
 	err := netconf.ValidateURN(netconf.CapabilityPartialLock)
 	require.NoError(t, err, "CapabilityPartialLock must pass ValidateURN")
 }
@@ -293,6 +319,7 @@ func TestCapability_PartialLock_ValidURN(t *testing.T) {
 // TestCapability_PartialLock_ExactValue verifies the exact URN string for
 // CapabilityPartialLock matches RFC 5717 §2.4.
 func TestCapability_PartialLock_ExactValue(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t,
 		"urn:ietf:params:netconf:capability:partial-lock:1.0",
 		netconf.CapabilityPartialLock,

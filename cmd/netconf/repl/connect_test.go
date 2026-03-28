@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/GabrielNunesIT/netconf/cmd/netconf/repl"
 	netconf "github.com/GabrielNunesIT/netconf/netconf"
 	"github.com/GabrielNunesIT/netconf/netconf/client"
 	"github.com/GabrielNunesIT/netconf/netconf/server"
 	ncssh "github.com/GabrielNunesIT/netconf/netconf/transport/ssh"
-	"github.com/GabrielNunesIT/netconf/cmd/netconf/repl"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	gossh "golang.org/x/crypto/ssh"
@@ -215,4 +215,3 @@ func TestConnect_NoSpuriousWarning(t *testing.T) {
 	var out2, errOut2 bytes.Buffer
 	_ = repl.ExportedHandleDisconnect(sess, &out2, &errOut2)
 }
-

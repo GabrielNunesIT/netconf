@@ -99,7 +99,7 @@ type pipeReadWriter struct {
 	w io.Writer
 }
 
-func (p *pipeReadWriter) Read(b []byte) (int, error) { return p.r.Read(b) }
+func (p *pipeReadWriter) Read(b []byte) (int, error)  { return p.r.Read(b) }
 func (p *pipeReadWriter) Write(b []byte) (int, error) { return p.w.Write(b) }
 
 // ── helper: write a complete message via MsgWriter ───────────────────────────

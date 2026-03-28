@@ -87,7 +87,7 @@ type DatastoreRef struct {
 	Name string `xml:"name"`
 }
 
-// NmdaFilter is a filter for get-data requests (RFC 8526 §3.1).
+// Filter is a filter for get-data requests (RFC 8526 §3.1).
 // It is analogous to netconf.Filter but uses the NMDA operation context.
 //
 // Exactly one of Content (subtree) or Select+Type (XPath) should be used.
@@ -95,7 +95,7 @@ type DatastoreRef struct {
 //   - Type:    "subtree" or "xpath"; omitted for subtree filters.
 //   - Select:  XPath expression (when Type is "xpath").
 //   - Content: raw inner XML of the subtree filter criteria (per P003).
-type NmdaFilter struct {
+type Filter struct {
 	Type    string `xml:"type,attr,omitempty"`
 	Select  string `xml:"select,attr,omitempty"`
 	Content []byte `xml:",innerxml"`
@@ -114,11 +114,11 @@ type NmdaFilter struct {
 //     (RFC 8342 §5.3.4). Only applicable to the operational datastore.
 //   - MaxDepth:    limits the depth of the returned subtree; 0 means unlimited.
 type GetData struct {
-	XMLName    xml.Name      `xml:"urn:ietf:params:xml:ns:yang:ietf-netconf-nmda get-data"`
-	Datastore  DatastoreRef  `xml:"datastore"`
-	Filter     *NmdaFilter   `xml:"filter,omitempty"`
-	WithOrigin *struct{}     `xml:"with-origin,omitempty"`
-	MaxDepth   uint32        `xml:"max-depth,omitempty"`
+	XMLName    xml.Name     `xml:"urn:ietf:params:xml:ns:yang:ietf-netconf-nmda get-data"`
+	Datastore  DatastoreRef `xml:"datastore"`
+	Filter     *Filter      `xml:"filter,omitempty"`
+	WithOrigin *struct{}    `xml:"with-origin,omitempty"`
+	MaxDepth   uint32       `xml:"max-depth,omitempty"`
 }
 
 // EditData applies configuration changes to a writable NMDA datastore

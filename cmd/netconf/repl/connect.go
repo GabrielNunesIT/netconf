@@ -45,7 +45,7 @@ func handleConnect(args []string, rl *readline.Instance, sess *Session, outW, er
 
 	if err := fs.Parse(args); err != nil {
 		// flag package already wrote the error to errW.
-		return nil
+		return nil //nolint:nilerr // REPL: parse errors are printed to errW, not returned
 	}
 
 	if *host == "" {

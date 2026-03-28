@@ -342,7 +342,7 @@ func TestDo_MessageIDMonotonicallyIncreases(t *testing.T) {
 			}
 			idCh <- rpc.MessageID
 			data, _ := xml.Marshal(okReply(rpc.MessageID))
-			transport.WriteMsg(serverT, data) //nolint:errcheck
+			transport.WriteMsg(serverT, data)
 		}
 		errCh <- nil
 	}()
@@ -974,14 +974,14 @@ func generateClientTestCA(t *testing.T) *tlsClientCABundle {
 }
 
 // generateClientTestCert creates a certificate signed by ca using template.
-// Returns cert PEM, key PEM, and the parsed *x509.Certificate.
-func generateClientTestCert(t *testing.T, ca *tlsClientCABundle, template *x509.Certificate) (certPEM, keyPEM []byte, parsed *x509.Certificate) {
+// Returns cert PEM and key PEM.
+func generateClientTestCert(t *testing.T, ca *tlsClientCABundle, template *x509.Certificate) (certPEM, keyPEM []byte) {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err, "generate cert key")
 	certDER, err := x509.CreateCertificate(rand.Reader, template, ca.cert, &key.PublicKey, ca.key)
 	require.NoError(t, err, "create cert")
-	parsed, err = x509.ParseCertificate(certDER)
+	_, err = x509.ParseCertificate(certDER)
 	require.NoError(t, err, "parse cert")
 	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 	keyDER, err := x509.MarshalECPrivateKey(key)
@@ -1000,7 +1000,7 @@ func testClientTLSConfigs(t *testing.T) (serverCfg, clientCfg *cryptotls.Config)
 	caPool.AddCert(ca.cert)
 
 	// Server cert (SANs: "localhost", "127.0.0.1").
-	sCertPEM, sKeyPEM, _ := generateClientTestCert(t, ca, &x509.Certificate{
+	sCertPEM, sKeyPEM := generateClientTestCert(t, ca, &x509.Certificate{
 		SerialNumber: big.NewInt(2),
 		Subject:      pkix.Name{CommonName: "server.test"},
 		DNSNames:     []string{"localhost", "127.0.0.1"},
@@ -1013,7 +1013,7 @@ func testClientTLSConfigs(t *testing.T) (serverCfg, clientCfg *cryptotls.Config)
 	require.NoError(t, err, "server X509KeyPair")
 
 	// Client cert (SAN DNS: "client.test").
-	cCertPEM, cKeyPEM, _ := generateClientTestCert(t, ca, &x509.Certificate{
+	cCertPEM, cKeyPEM := generateClientTestCert(t, ca, &x509.Certificate{
 		SerialNumber: big.NewInt(3),
 		Subject:      pkix.Name{CommonName: "client.test"},
 		DNSNames:     []string{"client.test"},

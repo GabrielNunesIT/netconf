@@ -23,6 +23,7 @@
 package ssh
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -108,7 +109,7 @@ func (l *Listener) Accept() (*ServerTransport, error) {
 	select {
 	case t, ok := <-l.transportCh:
 		if !ok {
-			return nil, fmt.Errorf("ssh server: listener closed")
+			return nil, errors.New("ssh server: listener closed")
 		}
 		return t, nil
 	case err := <-l.errCh:
@@ -301,9 +302,9 @@ func callHomeHandshake(conn net.Conn, config *gossh.ServerConfig) (*ServerTransp
 
 		// requests channel closed without a netconf subsystem request.
 		_ = sshConn.Close()
-		return nil, fmt.Errorf("ssh server: call home: session closed before netconf subsystem")
+		return nil, errors.New("ssh server: call home: session closed before netconf subsystem")
 	}
 
 	// chans channel closed without a session channel.
-	return nil, fmt.Errorf("ssh server: call home: connection closed before session channel")
+	return nil, errors.New("ssh server: call home: connection closed before session channel")
 }

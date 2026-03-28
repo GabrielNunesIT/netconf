@@ -32,7 +32,6 @@ package conformance_test
 
 import (
 	"bytes"
-	"encoding/xml"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -42,6 +41,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"math/big"
@@ -54,13 +54,13 @@ import (
 
 	netconf "github.com/GabrielNunesIT/netconf/netconf"
 	"github.com/GabrielNunesIT/netconf/netconf/client"
+	"github.com/GabrielNunesIT/netconf/netconf/nacm"
+	"github.com/GabrielNunesIT/netconf/netconf/nmda"
 	"github.com/GabrielNunesIT/netconf/netconf/server"
+	"github.com/GabrielNunesIT/netconf/netconf/subscriptions"
 	"github.com/GabrielNunesIT/netconf/netconf/transport"
 	ncssh "github.com/GabrielNunesIT/netconf/netconf/transport/ssh"
 	nctls "github.com/GabrielNunesIT/netconf/netconf/transport/tls"
-	"github.com/GabrielNunesIT/netconf/netconf/nacm"
-	"github.com/GabrielNunesIT/netconf/netconf/nmda"
-	"github.com/GabrielNunesIT/netconf/netconf/subscriptions"
 	"github.com/GabrielNunesIT/netconf/netconf/yanglibrary"
 	"github.com/GabrielNunesIT/netconf/netconf/yangpush"
 	"github.com/stretchr/testify/assert"
@@ -83,8 +83,8 @@ var caps11 = netconf.NewCapabilitySet([]string{netconf.BaseCap10, netconf.BaseCa
 
 // loopbackPair holds the state for a single in-process client↔server session.
 type loopbackPair struct {
-	cli       *client.Client
-	srv       *server.Server
+	cli        *client.Client
+	srv        *server.Server
 	serverSess *netconf.Session
 }
 
@@ -483,7 +483,7 @@ func allOperationCases() []opCase {
 					return err
 				}
 				if dr == nil {
-					return fmt.Errorf("get: DataReply must not be nil")
+					return errors.New("get: DataReply must not be nil")
 				}
 				if !strings.Contains(string(dr.Content), "config") {
 					return fmt.Errorf("get: DataReply content must contain 'config', got: %s", dr.Content)
@@ -500,7 +500,7 @@ func allOperationCases() []opCase {
 					return err
 				}
 				if dr == nil {
-					return fmt.Errorf("get-config: DataReply must not be nil")
+					return errors.New("get-config: DataReply must not be nil")
 				}
 				if !strings.Contains(string(dr.Content), "config") {
 					return fmt.Errorf("get-config: DataReply content must contain 'config', got: %s", dr.Content)
@@ -603,7 +603,7 @@ func allOperationCases() []opCase {
 // operation via the client, and asserts no error.  close-session is skipped
 // inside the loop (it terminates Serve); the caller must call CloseSession
 // after the table to shut down Serve cleanly.
-func runOperationTable(t *testing.T, ctx context.Context, p *loopbackPair, cases []opCase) {
+func runOperationTable(t *testing.T, ctx context.Context, p *loopbackPair, cases []opCase) { //nolint:revive // context.Context intentionally not first: t *testing.T must be first for thelper
 	t.Helper()
 	for _, tc := range cases {
 		if tc.name == "close-session" {
@@ -704,7 +704,7 @@ func TestConformance_ErrorPropagation(t *testing.T) {
 		p := newLoopbackPair(t, caps10, caps10, 11)
 		p.srv.RegisterHandler("get-config", server.HandlerFunc(
 			func(_ context.Context, _ *netconf.Session, _ *netconf.RPC) ([]byte, error) {
-				return nil, fmt.Errorf("boom: internal failure")
+				return nil, errors.New("boom: internal failure")
 			},
 		))
 		serveDone := p.startServe(ctx)
@@ -780,8 +780,8 @@ func TestConformance_SessionLifecycle(t *testing.T) {
 		p := newLoopbackPair(t, caps10, caps10, 44)
 
 		var (
-			mu              sync.Mutex
-			capturedBody    []byte
+			mu           sync.Mutex
+			capturedBody []byte
 		)
 		p.srv.RegisterHandler("kill-session", server.HandlerFunc(
 			func(_ context.Context, _ *netconf.Session, rpc *netconf.RPC) ([]byte, error) {
@@ -815,10 +815,10 @@ func TestConformance_SessionLifecycle(t *testing.T) {
 // capability combination scenarios using raw sessions (no client.Client).
 func TestConformance_FramingAutoNegotiation(t *testing.T) {
 	scenarios := []struct {
-		name           string
-		clientCaps     netconf.CapabilitySet
-		serverCaps     netconf.CapabilitySet
-		wantFraming    netconf.FramingMode
+		name        string
+		clientCaps  netconf.CapabilitySet
+		serverCaps  netconf.CapabilitySet
+		wantFraming netconf.FramingMode
 	}{
 		{
 			name:        "both-support-1.1",
@@ -888,7 +888,7 @@ func TestConformance_FilterTypes(t *testing.T) {
 		p := newLoopbackPair(t, caps10, caps10, 20)
 
 		var (
-			mu          sync.Mutex
+			mu           sync.Mutex
 			capturedBody []byte
 		)
 		p.srv.RegisterHandler("get-config", server.HandlerFunc(
@@ -926,7 +926,7 @@ func TestConformance_FilterTypes(t *testing.T) {
 		p := newLoopbackPair(t, caps10, caps10, 21)
 
 		var (
-			mu          sync.Mutex
+			mu           sync.Mutex
 			capturedBody []byte
 		)
 		p.srv.RegisterHandler("get-config", server.HandlerFunc(
@@ -1157,7 +1157,7 @@ func TestConformance_ConcurrentOperations(t *testing.T) {
 						return
 					}
 					if dr == nil {
-						errCh <- fmt.Errorf("DataReply must not be nil")
+						errCh <- errors.New("DataReply must not be nil")
 						return
 					}
 					errCh <- nil
@@ -1736,13 +1736,16 @@ func nacmGuard(cfg nacm.Nacm, user string, groups []string, inner server.Handler
 		switch nacm.Enforce(cfg, req) {
 		case nacm.Permit:
 			return inner.Handle(ctx, sess, rpc)
-		default: // Deny or DefaultDeny
+		case nacm.Deny, nacm.DefaultDeny:
 			return nil, netconf.RPCError{
 				Type:     "protocol",
 				Tag:      "access-denied",
 				Severity: "error",
 				Message:  "NACM access denied",
 			}
+		default:
+			// unreachable: Decision has no other values.
+			return nil, netconf.RPCError{Tag: "operation-failed", Severity: "error"}
 		}
 	})
 }
@@ -2004,4 +2007,3 @@ func TestConformance_Subscriptions_CallHome_TLS(t *testing.T) {
 	require.NoError(t, cli.CloseSession(ctx))
 	waitServe(t, serveDone)
 }
-

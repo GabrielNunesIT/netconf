@@ -225,6 +225,31 @@ func TestSSH_HelloBase10Only(t *testing.T) {
 	require.NoError(t, <-writeErrCh, "client write EOM message")
 }
 
+// serveChannelReqs processes SSH channel requests for a test server goroutine.
+// It accepts "netconf" subsystem requests and rejects all others.
+func serveChannelReqs(ch gossh.Channel, reqs <-chan *gossh.Request) {
+	defer ch.Close()
+	for req := range reqs {
+		if req.Type != "subsystem" {
+			if req.WantReply {
+				_ = req.Reply(false, nil)
+			}
+			continue
+		}
+		name := parseSubsystemName(req.Payload)
+		if name == "netconf" {
+			if req.WantReply {
+				_ = req.Reply(true, nil)
+			}
+		} else {
+			if req.WantReply {
+				_ = req.Reply(false, nil)
+			}
+			return
+		}
+	}
+}
+
 // TestSSH_NonNetconfSubsystemRejected verifies that requesting a subsystem
 // other than "netconf" is rejected by the server with a failure reply.
 func TestSSH_NonNetconfSubsystemRejected(t *testing.T) {
@@ -260,29 +285,7 @@ func TestSSH_NonNetconfSubsystemRejected(t *testing.T) {
 				continue
 			}
 			// Service channel requests: reject non-"netconf" subsystem names.
-			go func(ch gossh.Channel, reqs <-chan *gossh.Request) {
-				defer ch.Close()
-				for req := range reqs {
-					if req.Type == "subsystem" {
-						name := parseSubsystemName(req.Payload)
-						if name == "netconf" {
-							if req.WantReply {
-								_ = req.Reply(true, nil)
-							}
-						} else {
-							// Reject: non-netconf subsystem.
-							if req.WantReply {
-								_ = req.Reply(false, nil)
-							}
-							return
-						}
-					} else {
-						if req.WantReply {
-							_ = req.Reply(false, nil)
-						}
-					}
-				}
-			}(ch, chanReqs)
+			go serveChannelReqs(ch, chanReqs)
 		}
 	}()
 

@@ -11,6 +11,7 @@ import (
 
 // TestDispatch_Exit verifies that 'exit' and 'quit' return errExit.
 func TestDispatch_Exit(t *testing.T) {
+	t.Parallel()
 	sess := &Session{}
 	var out, errOut bytes.Buffer
 
@@ -23,6 +24,7 @@ func TestDispatch_Exit(t *testing.T) {
 // TestDispatch_Unknown verifies that an unrecognised command writes an error
 // message and returns nil (loop continues).
 func TestDispatch_Unknown(t *testing.T) {
+	t.Parallel()
 	sess := &Session{}
 	var out, errOut bytes.Buffer
 
@@ -34,6 +36,7 @@ func TestDispatch_Unknown(t *testing.T) {
 
 // TestDispatch_Version verifies that 'version' prints the version string to stdout.
 func TestDispatch_Version(t *testing.T) {
+	t.Parallel()
 	sess := &Session{}
 	var out, errOut bytes.Buffer
 
@@ -45,6 +48,7 @@ func TestDispatch_Version(t *testing.T) {
 
 // TestDispatch_Help verifies that 'help' writes to stdout and returns nil.
 func TestDispatch_Help(t *testing.T) {
+	t.Parallel()
 	sess := &Session{}
 	var out, errOut bytes.Buffer
 
@@ -60,6 +64,7 @@ func TestDispatch_Help(t *testing.T) {
 // TestDispatch_OperationNotConnected verifies that operation commands print
 // a 'not connected' message and return nil when no session is active.
 func TestDispatch_OperationNotConnected(t *testing.T) {
+	t.Parallel()
 	sess := &Session{} // not connected
 	var out, errOut bytes.Buffer
 
@@ -73,6 +78,7 @@ func TestDispatch_OperationNotConnected(t *testing.T) {
 
 // TestSession_Connected verifies Session.Connected() reflects client state.
 func TestSession_Connected(t *testing.T) {
+	t.Parallel()
 	s := &Session{}
 	assert.False(t, s.Connected(), "new session must not be connected")
 	// Session.Connected() depends on the cli field — tested via connect/disconnect
@@ -82,6 +88,7 @@ func TestSession_Connected(t *testing.T) {
 // TestCompleter_Shape verifies the full tab-completion tree covers all expected
 // top-level command names.
 func TestCompleter_Shape(t *testing.T) {
+	t.Parallel()
 	expected := []string{
 		"connect", "disconnect",
 		"get", "get-config", "edit-config", "copy-config", "delete-config",
@@ -104,6 +111,7 @@ func TestCompleter_Shape(t *testing.T) {
 // TestSession_LockState verifies SetLocked/IsLocked round-trip and that
 // Connected() is unaffected by lock state.
 func TestSession_LockState(t *testing.T) {
+	t.Parallel()
 	s := &Session{}
 	assert.False(t, s.IsLocked("candidate"), "new session must not have candidate locked")
 	assert.False(t, s.IsLocked("running"), "new session must not have running locked")
@@ -122,6 +130,7 @@ func TestSession_LockState(t *testing.T) {
 // TestBuildPrompt_States verifies the prompt string for all three session states.
 // White-box test — accesses unexported Session fields directly.
 func TestBuildPrompt_States(t *testing.T) {
+	t.Parallel()
 	// Not connected → plain prompt.
 	s := &Session{}
 	assert.Equal(t, "netconf> ", buildPrompt(s))

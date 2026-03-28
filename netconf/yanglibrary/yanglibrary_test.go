@@ -12,6 +12,7 @@ import (
 // TestYangLibrary_NamespaceConstant verifies the namespace and capability URI
 // constants match the RFC 8525 YANG module namespace.
 func TestYangLibrary_NamespaceConstant(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, "urn:ietf:params:xml:ns:yang:ietf-yang-library", yanglibrary.YangLibraryNS)
 	assert.Equal(t, yanglibrary.YangLibraryNS, yanglibrary.CapabilityURI,
 		"CapabilityURI must equal YangLibraryNS")
@@ -22,6 +23,7 @@ func TestYangLibrary_NamespaceConstant(t *testing.T) {
 // content-id. It marshals to XML, asserts key structural properties, then
 // unmarshals back and asserts equality.
 func TestYangLibrary_RoundTrip(t *testing.T) {
+	t.Parallel()
 	original := yanglibrary.YangLibrary{
 		ContentID: "abc123",
 		ModuleSets: []yanglibrary.ModuleSet{
@@ -91,7 +93,7 @@ func TestYangLibrary_RoundTrip(t *testing.T) {
 	assert.Contains(t, xmlStr, `<revision>2018-02-20</revision>`)
 	assert.Contains(t, xmlStr, `<feature>arbitrary-names</feature>`)
 	assert.Contains(t, xmlStr, `<feature>pre-provisioning</feature>`)
-	assert.Contains(t, xmlStr, `<name>vendor-devs</name>`) // deviation
+	assert.Contains(t, xmlStr, `<name>vendor-devs</name>`)    // deviation
 	assert.Contains(t, xmlStr, `<name>ietf-if-common</name>`) // submodule
 	assert.Contains(t, xmlStr, `import-only-module`)
 	assert.Contains(t, xmlStr, `<name>ietf-yang-types</name>`)
@@ -131,6 +133,7 @@ func TestYangLibrary_RoundTrip(t *testing.T) {
 // TestYangLibrary_MinimalModule verifies that a Module with only Name and
 // Namespace marshals correctly and that optional fields are omitted.
 func TestYangLibrary_MinimalModule(t *testing.T) {
+	t.Parallel()
 	lib := yanglibrary.YangLibrary{
 		ModuleSets: []yanglibrary.ModuleSet{
 			{
@@ -162,6 +165,7 @@ func TestYangLibrary_MinimalModule(t *testing.T) {
 // TestYangLibrary_OmitEmptyFields verifies that an empty YangLibrary marshals
 // without spurious empty child elements.
 func TestYangLibrary_OmitEmptyFields(t *testing.T) {
+	t.Parallel()
 	lib := yanglibrary.YangLibrary{}
 
 	b, err := xml.Marshal(lib)

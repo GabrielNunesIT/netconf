@@ -48,6 +48,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"sync"
 	"sync/atomic"
 
@@ -55,8 +56,8 @@ import (
 	"github.com/GabrielNunesIT/netconf/netconf/monitoring"
 	"github.com/GabrielNunesIT/netconf/netconf/nmda"
 	"github.com/GabrielNunesIT/netconf/netconf/subscriptions"
-	nctls "github.com/GabrielNunesIT/netconf/netconf/transport/tls"
 	ncssh "github.com/GabrielNunesIT/netconf/netconf/transport/ssh"
+	nctls "github.com/GabrielNunesIT/netconf/netconf/transport/tls"
 	gossh "golang.org/x/crypto/ssh"
 )
 
@@ -190,7 +191,7 @@ func (c *Client) recvLoop() {
 func (c *Client) Do(ctx context.Context, op any) (*netconf.RPCReply, error) {
 	// Assign a unique message-id (decimal string, starts at 1).
 	idNum := c.nextID.Add(1)
-	idStr := fmt.Sprintf("%d", idNum)
+	idStr := strconv.FormatUint(idNum, 10)
 
 	// Marshal the operation element.
 	opBytes, err := xml.Marshal(op)

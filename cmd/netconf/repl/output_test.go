@@ -10,17 +10,20 @@ import (
 
 // TestPrettyXML_Nil verifies that nil input returns an empty string.
 func TestPrettyXML_Nil(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, "", prettyXML(nil))
 }
 
 // TestPrettyXML_Empty verifies that empty input returns an empty string.
 func TestPrettyXML_Empty(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, "", prettyXML([]byte{}))
 }
 
 // TestPrettyXML_SingleRoot verifies that a valid single-root XML document
 // is indented correctly.
 func TestPrettyXML_SingleRoot(t *testing.T) {
+	t.Parallel()
 	input := []byte(`<data><interfaces><interface><name>eth0</name></interface></interfaces></data>`)
 
 	out := prettyXML(input)
@@ -37,6 +40,7 @@ func TestPrettyXML_SingleRoot(t *testing.T) {
 // TestPrettyXML_MultiSibling verifies that multi-sibling XML (no single root)
 // is handled via the synthetic wrapper and returned indented without panicking.
 func TestPrettyXML_MultiSibling(t *testing.T) {
+	t.Parallel()
 	// Simulate an RPCReply.Body with two sibling elements (e.g. two rpc-errors).
 	input := []byte(`<rpc-error><error-tag>lock-denied</error-tag></rpc-error><rpc-error><error-tag>access-denied</error-tag></rpc-error>`)
 
@@ -55,6 +59,7 @@ func TestPrettyXML_MultiSibling(t *testing.T) {
 // TestPrettyXML_InvalidXML verifies that completely invalid XML falls back to
 // returning the raw bytes as a string without panicking.
 func TestPrettyXML_InvalidXML(t *testing.T) {
+	t.Parallel()
 	input := []byte("not xml at all <<<>>>")
 
 	// Must not panic.
@@ -65,6 +70,7 @@ func TestPrettyXML_InvalidXML(t *testing.T) {
 // TestPrettyXML_DataReplyBody verifies prettyXML on a realistic RPCReply.Body
 // from a get-config response.
 func TestPrettyXML_DataReplyBody(t *testing.T) {
+	t.Parallel()
 	// This matches the innerxml shape of a typical get-config DataReply.
 	input := []byte(`<data xmlns="urn:ietf:params:xml:ns:netconf:base:1.0"><config><interfaces xmlns="urn:ietf:params:xml:ns:yang:ietf-interfaces"><interface><name>eth0</name><enabled>true</enabled></interface></interfaces></config></data>`)
 
@@ -81,6 +87,7 @@ func TestPrettyXML_DataReplyBody(t *testing.T) {
 
 // TestPrettyXML_WithNamespace verifies that namespace attributes are preserved.
 func TestPrettyXML_WithNamespace(t *testing.T) {
+	t.Parallel()
 	input := []byte(`<netconf-state xmlns="urn:ietf:params:xml:ns:yang:ietf-netconf-monitoring"><capabilities><capability>urn:ietf:params:netconf:base:1.0</capability></capabilities></netconf-state>`)
 
 	out := prettyXML(input)
@@ -92,6 +99,7 @@ func TestPrettyXML_WithNamespace(t *testing.T) {
 
 // TestPrintXML_Raw verifies that PrintXML with raw=true writes bytes verbatim.
 func TestPrintXML_Raw(t *testing.T) {
+	t.Parallel()
 	input := []byte(`<data><x/></data>`)
 	var buf bytes.Buffer
 
@@ -103,6 +111,7 @@ func TestPrintXML_Raw(t *testing.T) {
 
 // TestPrintXML_Pretty verifies that PrintXML with raw=false writes indented XML.
 func TestPrintXML_Pretty(t *testing.T) {
+	t.Parallel()
 	input := []byte(`<data><x><y>val</y></x></data>`)
 	var buf bytes.Buffer
 
@@ -118,6 +127,7 @@ func TestPrintXML_Pretty(t *testing.T) {
 
 // TestPrintXML_Empty verifies that PrintXML with empty body writes nothing.
 func TestPrintXML_Empty(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	PrintXML(&buf, nil, false)
 	assert.Empty(t, buf.String())

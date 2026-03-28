@@ -114,6 +114,7 @@ func sendCloseSession(t *testing.T, clientSess *netconf.Session, serveDone chan 
 // registered operation is routed to the correct handler and its body is
 // returned in the reply.
 func TestServer_DispatchesToRegisteredHandler(t *testing.T) {
+	t.Parallel()
 	clientSess, serverSess := newTestPair(t)
 
 	srv := server.NewServer()
@@ -141,6 +142,7 @@ func TestServer_DispatchesToRegisteredHandler(t *testing.T) {
 // TestServer_UnknownOperation_ReturnsError verifies that an RPC for an
 // unregistered operation name produces an operation-not-supported rpc-error.
 func TestServer_UnknownOperation_ReturnsError(t *testing.T) {
+	t.Parallel()
 	clientSess, serverSess := newTestPair(t)
 
 	srv := server.NewServer()
@@ -168,6 +170,7 @@ func TestServer_UnknownOperation_ReturnsError(t *testing.T) {
 // returning an RPCError produces a well-formed <rpc-error> reply with the
 // same fields.
 func TestServer_HandlerRPCError_PropagatesAsReply(t *testing.T) {
+	t.Parallel()
 	clientSess, serverSess := newTestPair(t)
 
 	srv := server.NewServer()
@@ -205,6 +208,7 @@ func TestServer_HandlerRPCError_PropagatesAsReply(t *testing.T) {
 // TestServer_CloseSession_TerminatesServeLoop verifies that a <close-session>
 // RPC causes Serve to return nil after sending an <ok/> reply.
 func TestServer_CloseSession_TerminatesServeLoop(t *testing.T) {
+	t.Parallel()
 	clientSess, serverSess := newTestPair(t)
 
 	srv := server.NewServer()
@@ -230,6 +234,7 @@ func TestServer_CloseSession_TerminatesServeLoop(t *testing.T) {
 // TestServer_HandlerReturnsOk verifies that a handler returning (nil, nil)
 // causes the server to send an <ok/> reply.
 func TestServer_HandlerReturnsOk(t *testing.T) {
+	t.Parallel()
 	clientSess, serverSess := newTestPair(t)
 
 	srv := server.NewServer()
@@ -253,12 +258,13 @@ func TestServer_HandlerReturnsOk(t *testing.T) {
 // TestServer_HandlerNonRPCError_ProducesOperationFailed verifies that a
 // handler returning a plain error produces an operation-failed rpc-error.
 func TestServer_HandlerNonRPCError_ProducesOperationFailed(t *testing.T) {
+	t.Parallel()
 	clientSess, serverSess := newTestPair(t)
 
 	srv := server.NewServer()
 	srv.RegisterHandler("get", server.HandlerFunc(
 		func(_ context.Context, _ *netconf.Session, _ *netconf.RPC) ([]byte, error) {
-			return nil, errPlain("something went wrong internally")
+			return nil, plainError("something went wrong internally")
 		},
 	))
 
@@ -285,6 +291,7 @@ func TestServer_HandlerNonRPCError_ProducesOperationFailed(t *testing.T) {
 // TestServer_UnknownOperation_ErrorMessageNamesOperation is the observability
 // diagnostic check: the operation name must appear in the rpc-error message.
 func TestServer_UnknownOperation_ErrorMessageNamesOperation(t *testing.T) {
+	t.Parallel()
 	clientSess, serverSess := newTestPair(t)
 
 	srv := server.NewServer()
@@ -305,10 +312,10 @@ func TestServer_UnknownOperation_ErrorMessageNamesOperation(t *testing.T) {
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-// errPlain is a minimal error type for non-RPCError handler error tests.
-type errPlain string
+// plainError is a minimal error type for non-RPCError handler error tests.
+type plainError string
 
-func (e errPlain) Error() string { return string(e) }
+func (e plainError) Error() string { return string(e) }
 
 // wrapOp wraps an operation name as a minimal NETCONF element for use in
 // sendRPC. The resulting body is `<opName xmlns="…"/>`.
@@ -331,6 +338,7 @@ func wrapOp(opName string) []byte {
 // sess.Send blocks until the other end reads, so client Recv and server Send
 // must happen concurrently.
 func TestSendNotification(t *testing.T) {
+	t.Parallel()
 	clientSess, serverSess := newTestPair(t)
 
 	const eventTime = "2026-01-01T00:00:00Z"
@@ -362,6 +370,7 @@ func TestSendNotification(t *testing.T) {
 // TestSendNotification_SendError verifies that SendNotification wraps transport
 // errors with the expected "server: SendNotification: send:" prefix.
 func TestSendNotification_SendError(t *testing.T) {
+	t.Parallel()
 	clientSess, serverSess := newTestPair(t)
 
 	// Close both sides so the next Send fails.
@@ -434,6 +443,7 @@ func newClientServerPair(t *testing.T) (cli *client.Client, serverSess *netconf.
 //  2. EditConfig → handler returns (nil, nil) → ok reply → no error
 //  3. CloseSession → server built-in intercepts → <ok/> → Serve returns nil
 func TestServer_WithClient(t *testing.T) {
+	t.Parallel()
 	cli, serverSess := newClientServerPair(t)
 
 	srv := server.NewServer()
@@ -499,6 +509,7 @@ func TestServer_WithClient(t *testing.T) {
 // client method GetConfig must surface it as a netconf.RPCError that
 // errors.As can extract with matching fields.
 func TestServer_WithClient_RPCError(t *testing.T) {
+	t.Parallel()
 	cli, serverSess := newClientServerPair(t)
 
 	srv := server.NewServer()
@@ -557,6 +568,7 @@ func TestServer_WithClient_RPCError(t *testing.T) {
 // graceful-shutdown patterns.  Context cancellation signals "stop taking new
 // work" while transport close actually unblocks the I/O.
 func TestServer_ContextCancel(t *testing.T) {
+	t.Parallel()
 	cli, serverSess := newClientServerPair(t)
 
 	srv := server.NewServer()

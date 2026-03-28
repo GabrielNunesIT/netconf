@@ -14,6 +14,7 @@ import (
 // ── Hello ────────────────────────────────────────────────────────────────────
 
 func TestHello_MarshalNamespace(t *testing.T) {
+	t.Parallel()
 	h := netconf.Hello{
 		Capabilities: []string{netconf.BaseCap10},
 	}
@@ -27,6 +28,7 @@ func TestHello_MarshalNamespace(t *testing.T) {
 }
 
 func TestHello_RoundTrip_Capabilities(t *testing.T) {
+	t.Parallel()
 	original := netconf.Hello{
 		Capabilities: []string{
 			netconf.BaseCap10,
@@ -45,6 +47,7 @@ func TestHello_RoundTrip_Capabilities(t *testing.T) {
 }
 
 func TestHello_RoundTrip_SessionID(t *testing.T) {
+	t.Parallel()
 	original := netconf.Hello{
 		Capabilities: []string{netconf.BaseCap10},
 		SessionID:    42,
@@ -59,6 +62,7 @@ func TestHello_RoundTrip_SessionID(t *testing.T) {
 }
 
 func TestHello_SessionID_Omitted_When_Zero(t *testing.T) {
+	t.Parallel()
 	h := netconf.Hello{
 		Capabilities: []string{netconf.BaseCap10},
 		SessionID:    0,
@@ -71,6 +75,7 @@ func TestHello_SessionID_Omitted_When_Zero(t *testing.T) {
 }
 
 func TestHello_Unmarshal_From_Wire(t *testing.T) {
+	t.Parallel()
 	// Simulate a real server hello as it would arrive on the wire.
 	wire := `<hello xmlns="urn:ietf:params:xml:ns:netconf:base:1.0">` +
 		`<capabilities>` +
@@ -90,6 +95,7 @@ func TestHello_Unmarshal_From_Wire(t *testing.T) {
 // ── RPC ──────────────────────────────────────────────────────────────────────
 
 func TestRPC_MarshalNamespace(t *testing.T) {
+	t.Parallel()
 	r := netconf.RPC{
 		MessageID: "1",
 		Body:      []byte(`<get-config><source><running/></source></get-config>`),
@@ -104,6 +110,7 @@ func TestRPC_MarshalNamespace(t *testing.T) {
 }
 
 func TestRPC_RoundTrip(t *testing.T) {
+	t.Parallel()
 	original := netconf.RPC{
 		MessageID: "42",
 		Body:      []byte(`<get/>`),
@@ -121,6 +128,7 @@ func TestRPC_RoundTrip(t *testing.T) {
 }
 
 func TestRPC_EmptyBody(t *testing.T) {
+	t.Parallel()
 	r := netconf.RPC{MessageID: "0"}
 	data, err := xml.Marshal(&r)
 	require.NoError(t, err)
@@ -130,6 +138,7 @@ func TestRPC_EmptyBody(t *testing.T) {
 // ── RPCReply ─────────────────────────────────────────────────────────────────
 
 func TestRPCReply_MarshalNamespace(t *testing.T) {
+	t.Parallel()
 	reply := netconf.RPCReply{
 		MessageID: "1",
 		Ok:        &struct{}{},
@@ -144,6 +153,7 @@ func TestRPCReply_MarshalNamespace(t *testing.T) {
 }
 
 func TestRPCReply_RoundTrip_MessageID(t *testing.T) {
+	t.Parallel()
 	original := netconf.RPCReply{
 		MessageID: "99",
 		Ok:        &struct{}{},
@@ -158,6 +168,7 @@ func TestRPCReply_RoundTrip_MessageID(t *testing.T) {
 }
 
 func TestRPCReply_RoundTrip_Body(t *testing.T) {
+	t.Parallel()
 	original := netconf.RPCReply{
 		MessageID: "5",
 		Body:      []byte(`<data><foo/></data>`),
@@ -172,6 +183,7 @@ func TestRPCReply_RoundTrip_Body(t *testing.T) {
 }
 
 func TestRPCReply_Unmarshal_From_Wire_Ok(t *testing.T) {
+	t.Parallel()
 	wire := `<rpc-reply xmlns="urn:ietf:params:xml:ns:netconf:base:1.0" message-id="7"><ok/></rpc-reply>`
 
 	var r netconf.RPCReply
@@ -184,6 +196,7 @@ func TestRPCReply_Unmarshal_From_Wire_Ok(t *testing.T) {
 // ── XMLName constants ────────────────────────────────────────────────────────
 
 func TestXMLNameConstants(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, "urn:ietf:params:xml:ns:netconf:base:1.0", netconf.HelloName.Space)
 	assert.Equal(t, "hello", netconf.HelloName.Local)
 
@@ -197,6 +210,7 @@ func TestXMLNameConstants(t *testing.T) {
 // ── Marshal produces bytes (not empty) ───────────────────────────────────────
 
 func TestHello_Marshal_NotEmpty(t *testing.T) {
+	t.Parallel()
 	h := netconf.Hello{Capabilities: []string{netconf.BaseCap10}}
 	var buf bytes.Buffer
 	require.NoError(t, xml.NewEncoder(&buf).Encode(&h))
@@ -208,6 +222,7 @@ func TestHello_Marshal_NotEmpty(t *testing.T) {
 // TestNotification_MarshalNamespace verifies that a Notification marshals with
 // the RFC 5277 notification namespace and the <notification> root element name.
 func TestNotification_MarshalNamespace(t *testing.T) {
+	t.Parallel()
 	n := netconf.Notification{
 		EventTime: "2024-01-01T00:00:00Z",
 	}
@@ -228,6 +243,7 @@ func TestNotification_MarshalNamespace(t *testing.T) {
 // TestNotification_RoundTrip verifies that a Notification with EventTime and Body
 // survives a marshal/unmarshal round-trip with all fields intact.
 func TestNotification_RoundTrip(t *testing.T) {
+	t.Parallel()
 	body := []byte(`<replayComplete xmlns="urn:ietf:params:xml:ns:netconf:notification:1.0"/>`)
 	original := netconf.Notification{
 		EventTime: "2024-06-15T12:34:56.789Z",
@@ -251,6 +267,7 @@ func TestNotification_RoundTrip(t *testing.T) {
 // When no event-specific body is present beyond the required EventTime, Body contains
 // the <eventTime> element bytes — this is expected xml decoder behavior.
 func TestNotification_RoundTrip_EmptyBody(t *testing.T) {
+	t.Parallel()
 	original := netconf.Notification{
 		EventTime: "2024-01-01T00:00:00Z",
 	}
@@ -271,6 +288,7 @@ func TestNotification_RoundTrip_EmptyBody(t *testing.T) {
 // TestNotification_UnmarshalFromWire simulates decoding a notification as it would
 // arrive on the wire from a NETCONF server.
 func TestNotification_UnmarshalFromWire(t *testing.T) {
+	t.Parallel()
 	wire := `<notification xmlns="urn:ietf:params:xml:ns:netconf:notification:1.0">` +
 		`<eventTime>2024-03-14T09:26:53Z</eventTime>` +
 		`<netconf-config-change xmlns="urn:ietf:params:xml:ns:yang:ietf-netconf-notifications">` +
@@ -288,6 +306,7 @@ func TestNotification_UnmarshalFromWire(t *testing.T) {
 // TestNotificationName_Constants verifies the NotificationName xml.Name var and
 // NotificationNS constant are set to the correct RFC 5277 values.
 func TestNotificationName_Constants(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, "urn:ietf:params:xml:ns:netconf:notification:1.0", netconf.NotificationNS)
 	assert.Equal(t, "urn:ietf:params:xml:ns:netconf:notification:1.0", netconf.NotificationName.Space)
 	assert.Equal(t, "notification", netconf.NotificationName.Local)

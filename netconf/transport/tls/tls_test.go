@@ -208,6 +208,7 @@ func newInProcessTLSPair(t *testing.T) (*Listener, *Transport) {
 //   - a message written in chunked framing on the client side is readable
 //     on the server side (proves the transport is actually switched)
 func TestTLS_HelloBase11(t *testing.T) {
+	t.Parallel()
 	caps := netconf.NewCapabilitySet([]string{netconf.BaseCap10, netconf.BaseCap11})
 
 	listener, clientTrp := newInProcessTLSPair(t)
@@ -270,6 +271,7 @@ func TestTLS_HelloBase11(t *testing.T) {
 // TestTLS_HelloBase10Only verifies that when the server advertises only
 // base:1.0, framing remains in EOM mode on both sides.
 func TestTLS_HelloBase10Only(t *testing.T) {
+	t.Parallel()
 	serverCaps := netconf.NewCapabilitySet([]string{netconf.BaseCap10})
 	clientCaps := netconf.NewCapabilitySet([]string{netconf.BaseCap10, netconf.BaseCap11})
 
@@ -329,6 +331,7 @@ func TestTLS_HelloBase10Only(t *testing.T) {
 // TestTLS_PeerCertificates verifies that ServerTransport.PeerCertificates()
 // returns the client's leaf certificate after mutual TLS authentication.
 func TestTLS_PeerCertificates(t *testing.T) {
+	t.Parallel()
 	cfgs := testTLSConfigs(t)
 
 	nl, err := net.Listen("tcp", "127.0.0.1:0")
@@ -360,6 +363,7 @@ func TestTLS_PeerCertificates(t *testing.T) {
 // and asserts that the derived username matches the client cert's SAN DNS name
 // ("client.test").
 func TestTLS_ServerDerivesUsername(t *testing.T) {
+	t.Parallel()
 	cfgs := testTLSConfigs(t)
 
 	nl, err := net.Listen("tcp", "127.0.0.1:0")

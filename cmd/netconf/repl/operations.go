@@ -90,10 +90,9 @@ func parseFilter(xpath, subtreeFile string) (*netconf.Filter, error) {
 		}
 		return &netconf.Filter{Type: "subtree", Content: content}, nil
 	}
-	return nil, nil
+	return nil, nil //nolint:nilnil // (nil, nil) is the documented sentinel meaning "no filter"
 }
 
-// printRPCError extracts and formats an RPC error from err.
 // Returns true if it handled an RPCError, false otherwise.
 func printRPCError(errW io.Writer, err error) bool {
 	var rpcErr netconf.RPCError

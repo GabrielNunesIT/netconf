@@ -15,21 +15,21 @@ package client_test
 
 import (
 	"context"
+	cryptotls "crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/xml"
 	"fmt"
 	"math/big"
 	"net"
 	"testing"
 	"time"
-	cryptotls "crypto/tls"
-	"crypto/x509"
-	"crypto/x509/pkix"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	client "github.com/GabrielNunesIT/netconf/netconf/client"
 	netconf "github.com/GabrielNunesIT/netconf/netconf"
+	client "github.com/GabrielNunesIT/netconf/netconf/client"
 	ncssh "github.com/GabrielNunesIT/netconf/netconf/transport/ssh"
 	nctls "github.com/GabrielNunesIT/netconf/netconf/transport/tls"
 )
@@ -175,8 +175,8 @@ func callHomeEchoServer(t *testing.T, sess *netconf.Session) {
 		}
 		// Decode just enough to get message-id and the operation.
 		var rpc struct {
-			XMLName   xml.Name `xml:"rpc"`
-			MessageID string   `xml:"message-id,attr"`
+			XMLName   xml.Name  `xml:"rpc"`
+			MessageID string    `xml:"message-id,attr"`
 			GetConfig *struct{} `xml:"get-config"`
 			Get       *struct{} `xml:"get"`
 		}
@@ -213,7 +213,7 @@ func testCallHomeTLSConfigs(t *testing.T) (serverCfg, clientCfg *cryptotls.Confi
 	caPool := x509.NewCertPool()
 	caPool.AddCert(ca.cert)
 
-	sCertPEM, sKeyPEM, _ := generateClientTestCert(t, ca, &x509.Certificate{
+	sCertPEM, sKeyPEM := generateClientTestCert(t, ca, &x509.Certificate{
 		SerialNumber: big.NewInt(200),
 		Subject:      pkix.Name{CommonName: "callhome-server.test"},
 		DNSNames:     []string{"localhost", "127.0.0.1"},
@@ -225,7 +225,7 @@ func testCallHomeTLSConfigs(t *testing.T) (serverCfg, clientCfg *cryptotls.Confi
 	serverTLSCert, err := cryptotls.X509KeyPair(sCertPEM, sKeyPEM)
 	require.NoError(t, err, "server TLS key pair")
 
-	cCertPEM, cKeyPEM, _ := generateClientTestCert(t, ca, &x509.Certificate{
+	cCertPEM, cKeyPEM := generateClientTestCert(t, ca, &x509.Certificate{
 		SerialNumber: big.NewInt(201),
 		Subject:      pkix.Name{CommonName: "callhome-client.test"},
 		DNSNames:     []string{"callhome-client.test"},

@@ -12,6 +12,7 @@ import (
 // TestSubscriptions_NamespaceConstants verifies the namespace and capability
 // URI constants match the values specified in RFC 8639 and RFC 8640.
 func TestSubscriptions_NamespaceConstants(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, "urn:ietf:params:xml:ns:yang:ietf-subscriptions", subscriptions.SubscriptionsNS)
 	assert.Equal(t, subscriptions.SubscriptionsNS, subscriptions.CapabilityURI,
 		"CapabilityURI must equal SubscriptionsNS")
@@ -26,6 +27,7 @@ func TestSubscriptions_NamespaceConstants(t *testing.T) {
 // EstablishSubscriptionRequest with stream, xpath filter, and stop-time
 // round-trips through xml.Marshal/Unmarshal correctly.
 func TestEstablishSubscriptionRequest_RoundTrip(t *testing.T) {
+	t.Parallel()
 	original := subscriptions.EstablishSubscriptionRequest{
 		Stream:   "NETCONF",
 		Filter:   &subscriptions.FilterSpec{XPathFilter: "/interfaces/interface[enabled='true']"},
@@ -55,6 +57,7 @@ func TestEstablishSubscriptionRequest_RoundTrip(t *testing.T) {
 // TestEstablishSubscriptionReply_RoundTrip verifies that an
 // EstablishSubscriptionReply with a subscription ID round-trips correctly.
 func TestEstablishSubscriptionReply_RoundTrip(t *testing.T) {
+	t.Parallel()
 	original := subscriptions.EstablishSubscriptionReply{
 		ID: 42,
 	}
@@ -76,6 +79,7 @@ func TestEstablishSubscriptionReply_RoundTrip(t *testing.T) {
 // TestModifySubscriptionRequest_RoundTrip verifies that a
 // ModifySubscriptionRequest with ID and new filter round-trips correctly.
 func TestModifySubscriptionRequest_RoundTrip(t *testing.T) {
+	t.Parallel()
 	original := subscriptions.ModifySubscriptionRequest{
 		ID:     7,
 		Filter: &subscriptions.FilterSpec{XPathFilter: "/syslog/entries"},
@@ -99,6 +103,7 @@ func TestModifySubscriptionRequest_RoundTrip(t *testing.T) {
 
 // TestDeleteSubscription_RoundTrip verifies DeleteSubscription round-trip.
 func TestDeleteSubscription_RoundTrip(t *testing.T) {
+	t.Parallel()
 	original := subscriptions.DeleteSubscription{ID: 99}
 
 	b, err := xml.Marshal(original)
@@ -115,6 +120,7 @@ func TestDeleteSubscription_RoundTrip(t *testing.T) {
 
 // TestKillSubscription_RoundTrip verifies KillSubscription round-trip with Reason.
 func TestKillSubscription_RoundTrip(t *testing.T) {
+	t.Parallel()
 	original := subscriptions.KillSubscription{
 		ID:     15,
 		Reason: "admin request",
@@ -138,6 +144,7 @@ func TestKillSubscription_RoundTrip(t *testing.T) {
 // TestSubscriptionStarted_RoundTrip verifies the subscription-started
 // notification body round-trips correctly.
 func TestSubscriptionStarted_RoundTrip(t *testing.T) {
+	t.Parallel()
 	original := subscriptions.SubscriptionStarted{
 		ID:     1,
 		Stream: "NETCONF",
@@ -162,6 +169,7 @@ func TestSubscriptionStarted_RoundTrip(t *testing.T) {
 // TestSubscriptionTerminated_RoundTrip verifies the subscription-terminated
 // notification body with reason round-trips correctly.
 func TestSubscriptionTerminated_RoundTrip(t *testing.T) {
+	t.Parallel()
 	original := subscriptions.SubscriptionTerminated{
 		ID:     3,
 		Reason: "filter-unavailable",
@@ -185,6 +193,7 @@ func TestSubscriptionTerminated_RoundTrip(t *testing.T) {
 // TestSubscriptionModified_RoundTrip verifies the subscription-modified
 // notification body round-trips correctly.
 func TestSubscriptionModified_RoundTrip(t *testing.T) {
+	t.Parallel()
 	original := subscriptions.SubscriptionModified{ID: 7}
 
 	b, err := xml.Marshal(original)
@@ -202,6 +211,7 @@ func TestSubscriptionModified_RoundTrip(t *testing.T) {
 // TestSubscriptionKilled_RoundTrip verifies the subscription-killed
 // notification body with reason round-trips correctly.
 func TestSubscriptionKilled_RoundTrip(t *testing.T) {
+	t.Parallel()
 	original := subscriptions.SubscriptionKilled{
 		ID:     5,
 		Reason: "operator forced",
@@ -225,6 +235,7 @@ func TestSubscriptionKilled_RoundTrip(t *testing.T) {
 // TestOmitEmptyFields verifies that optional fields with zero/nil values
 // are omitted from marshaled XML.
 func TestOmitEmptyFields(t *testing.T) {
+	t.Parallel()
 	req := subscriptions.EstablishSubscriptionRequest{}
 
 	b, err := xml.Marshal(req)
@@ -246,6 +257,7 @@ func TestOmitEmptyFields(t *testing.T) {
 // TestFilterSpec_SubtreeFilter verifies that SubtreeFilter emits raw XML bytes
 // verbatim via innerxml encoding inside the <subtree-filter> element.
 func TestFilterSpec_SubtreeFilter(t *testing.T) {
+	t.Parallel()
 	innerXML := []byte(`<interfaces xmlns="urn:ietf:params:xml:ns:yang:ietf-interfaces"/>`)
 
 	req := subscriptions.EstablishSubscriptionRequest{

@@ -9,8 +9,8 @@ import (
 // Session holds live NETCONF connection state for the REPL.
 // It is safe to call any method on a zero-value Session.
 type Session struct {
-	host   string         // display string used in the prompt (e.g. "192.0.2.1:830")
-	cli    *client.Client // nil when not connected
+	host   string          // display string used in the prompt (e.g. "192.0.2.1:830")
+	cli    *client.Client  // nil when not connected
 	locked map[string]bool // tracks locked datastores ("running", "candidate", "startup")
 }
 

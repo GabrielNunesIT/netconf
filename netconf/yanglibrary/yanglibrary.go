@@ -59,10 +59,10 @@ const CapabilityURI = "urn:ietf:params:xml:ns:yang:ietf-yang-library"
 //   - ContentID: opaque string that changes whenever the library changes.
 //     Clients may cache the library and detect changes by polling content-id.
 type YangLibrary struct {
-	XMLName    xml.Name       `xml:"urn:ietf:params:xml:ns:yang:ietf-yang-library yang-library"`
-	ModuleSets []ModuleSet    `xml:"module-set"`
+	XMLName    xml.Name        `xml:"urn:ietf:params:xml:ns:yang:ietf-yang-library yang-library"`
+	ModuleSets []ModuleSet     `xml:"module-set"`
 	Datastores []YangDatastore `xml:"datastore"`
-	ContentID  string         `xml:"content-id,omitempty"`
+	ContentID  string          `xml:"content-id,omitempty"`
 }
 
 // ModuleSet is a named set of YANG modules within the YANG library

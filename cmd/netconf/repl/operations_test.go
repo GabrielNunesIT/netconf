@@ -97,7 +97,7 @@ func TestCmdGet_Loopback(t *testing.T) {
 // TestCmdGetConfig_Loopback verifies get-config with --source running.
 func TestCmdGetConfig_Loopback(t *testing.T) {
 	addr := startTestSSHServer(t, baseCaps, 602, map[string]server.Handler{
-		"get-config": server.HandlerFunc(func(_ context.Context, _ *netconf.Session, rpc *netconf.RPC) ([]byte, error) {
+		"get-config": server.HandlerFunc(func(_ context.Context, _ *netconf.Session, _ *netconf.RPC) ([]byte, error) {
 			return []byte(testDataBody), nil
 		}),
 	})

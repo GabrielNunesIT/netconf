@@ -24,6 +24,7 @@ func assertNotificationsNS(t *testing.T, s string) {
 // ── NetconfNotificationsNS constant ──────────────────────────────────────────
 
 func TestNetconfNotificationsNS_Value(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t,
 		"urn:ietf:params:xml:ns:yang:ietf-netconf-notifications",
 		netconf.NetconfNotificationsNS,
@@ -33,7 +34,8 @@ func TestNetconfNotificationsNS_Value(t *testing.T) {
 // ── NetconfConfigChange ───────────────────────────────────────────────────────
 
 func TestNetconfConfigChange_RoundTrip(t *testing.T) {
-	original := netconf.NetconfConfigChange{
+	t.Parallel()
+	original := netconf.ConfigChange{
 		ChangedBy: netconf.ChangedBy{
 			Username:   "alice",
 			SessionID:  7,
@@ -58,7 +60,7 @@ func TestNetconfConfigChange_RoundTrip(t *testing.T) {
 	assert.Contains(t, out, "<operation>delete</operation>")
 
 	// Unmarshal
-	var decoded netconf.NetconfConfigChange
+	var decoded netconf.ConfigChange
 	require.NoError(t, xml.Unmarshal([]byte(out), &decoded))
 	assert.Equal(t, "alice", decoded.ChangedBy.Username)
 	assert.Equal(t, uint32(7), decoded.ChangedBy.SessionID)
@@ -70,9 +72,10 @@ func TestNetconfConfigChange_RoundTrip(t *testing.T) {
 }
 
 func TestNetconfConfigChange_ServerInitiated(t *testing.T) {
+	t.Parallel()
 	// ChangedBy with Server set (YANG choice: server-or-user = server)
 	s := struct{}{}
-	original := netconf.NetconfConfigChange{
+	original := netconf.ConfigChange{
 		ChangedBy: netconf.ChangedBy{Server: &s},
 	}
 	out := mustMarshal(t, &original)
@@ -83,13 +86,14 @@ func TestNetconfConfigChange_ServerInitiated(t *testing.T) {
 	assert.NotContains(t, out, "<session-id>", "session-id must be absent for server-initiated")
 
 	// Unmarshal back
-	var decoded netconf.NetconfConfigChange
+	var decoded netconf.ConfigChange
 	require.NoError(t, xml.Unmarshal([]byte(out), &decoded))
 	assert.NotNil(t, decoded.ChangedBy.Server, "Server pointer must be non-nil after unmarshal")
 	assert.Empty(t, decoded.ChangedBy.Username)
 }
 
 func TestNetconfConfigChange_UnmarshalFromWire(t *testing.T) {
+	t.Parallel()
 	// Simulate a wire-format notification body fragment (no envelope wrapper)
 	wire := `<netconf-config-change xmlns="urn:ietf:params:xml:ns:yang:ietf-netconf-notifications">
   <changed-by><username>bob</username><session-id>3</session-id></changed-by>
@@ -97,7 +101,7 @@ func TestNetconfConfigChange_UnmarshalFromWire(t *testing.T) {
   <edit><target>candidate</target><operation>replace</operation></edit>
 </netconf-config-change>`
 
-	var decoded netconf.NetconfConfigChange
+	var decoded netconf.ConfigChange
 	require.NoError(t, xml.Unmarshal([]byte(wire), &decoded))
 	assert.Equal(t, "bob", decoded.ChangedBy.Username)
 	assert.Equal(t, uint32(3), decoded.ChangedBy.SessionID)
@@ -109,7 +113,8 @@ func TestNetconfConfigChange_UnmarshalFromWire(t *testing.T) {
 // ── NetconfCapabilityChange ───────────────────────────────────────────────────
 
 func TestNetconfCapabilityChange_RoundTrip(t *testing.T) {
-	original := netconf.NetconfCapabilityChange{
+	t.Parallel()
+	original := netconf.CapabilityChange{
 		ChangedBy: netconf.ChangedBy{
 			Username:  "carol",
 			SessionID: 12,
@@ -126,7 +131,7 @@ func TestNetconfCapabilityChange_RoundTrip(t *testing.T) {
 	assert.Contains(t, out, "<deleted-capability>")
 	assert.Contains(t, out, "<modified-capability>")
 
-	var decoded netconf.NetconfCapabilityChange
+	var decoded netconf.CapabilityChange
 	require.NoError(t, xml.Unmarshal([]byte(out), &decoded))
 	assert.Equal(t, "carol", decoded.ChangedBy.Username)
 	require.Len(t, decoded.AddedCapability, 1)
@@ -136,8 +141,9 @@ func TestNetconfCapabilityChange_RoundTrip(t *testing.T) {
 }
 
 func TestNetconfCapabilityChange_EmptyLists(t *testing.T) {
+	t.Parallel()
 	// When no capabilities change, the list fields should be omitted
-	original := netconf.NetconfCapabilityChange{
+	original := netconf.CapabilityChange{
 		ChangedBy: netconf.ChangedBy{Username: "dave"},
 	}
 	out := mustMarshal(t, &original)
@@ -149,7 +155,8 @@ func TestNetconfCapabilityChange_EmptyLists(t *testing.T) {
 // ── NetconfSessionStart ───────────────────────────────────────────────────────
 
 func TestNetconfSessionStart_RoundTrip(t *testing.T) {
-	original := netconf.NetconfSessionStart{
+	t.Parallel()
+	original := netconf.SessionStart{
 		Username:   "eve",
 		SessionID:  42,
 		SourceHost: "10.0.0.1",
@@ -162,7 +169,7 @@ func TestNetconfSessionStart_RoundTrip(t *testing.T) {
 	assert.Contains(t, out, "<session-id>42</session-id>")
 	assert.Contains(t, out, "<source-host>10.0.0.1</source-host>")
 
-	var decoded netconf.NetconfSessionStart
+	var decoded netconf.SessionStart
 	require.NoError(t, xml.Unmarshal([]byte(out), &decoded))
 	assert.Equal(t, "eve", decoded.Username)
 	assert.Equal(t, uint32(42), decoded.SessionID)
@@ -170,15 +177,16 @@ func TestNetconfSessionStart_RoundTrip(t *testing.T) {
 }
 
 func TestNetconfSessionStart_NoSourceHost(t *testing.T) {
+	t.Parallel()
 	// SourceHost is optional — must be omitted when empty
-	original := netconf.NetconfSessionStart{
+	original := netconf.SessionStart{
 		Username:  "frank",
 		SessionID: 1,
 	}
 	out := mustMarshal(t, &original)
 	assert.NotContains(t, out, "<source-host>", "absent SourceHost must be omitted")
 
-	var decoded netconf.NetconfSessionStart
+	var decoded netconf.SessionStart
 	require.NoError(t, xml.Unmarshal([]byte(out), &decoded))
 	assert.Empty(t, decoded.SourceHost)
 }
@@ -186,7 +194,8 @@ func TestNetconfSessionStart_NoSourceHost(t *testing.T) {
 // ── NetconfSessionEnd ─────────────────────────────────────────────────────────
 
 func TestNetconfSessionEnd_RoundTrip(t *testing.T) {
-	original := netconf.NetconfSessionEnd{
+	t.Parallel()
+	original := netconf.SessionEnd{
 		Username:          "grace",
 		SessionID:         99,
 		SourceHost:        "172.16.0.1",
@@ -200,7 +209,7 @@ func TestNetconfSessionEnd_RoundTrip(t *testing.T) {
 	assert.Contains(t, out, "<session-id>99</session-id>")
 	assert.Contains(t, out, "<termination-reason>closed</termination-reason>")
 
-	var decoded netconf.NetconfSessionEnd
+	var decoded netconf.SessionEnd
 	require.NoError(t, xml.Unmarshal([]byte(out), &decoded))
 	assert.Equal(t, "grace", decoded.Username)
 	assert.Equal(t, uint32(99), decoded.SessionID)
@@ -208,8 +217,9 @@ func TestNetconfSessionEnd_RoundTrip(t *testing.T) {
 }
 
 func TestNetconfSessionEnd_KilledBy(t *testing.T) {
+	t.Parallel()
 	// When a session is killed, KilledBy carries the killing session-id
-	original := netconf.NetconfSessionEnd{
+	original := netconf.SessionEnd{
 		Username:          "hunter",
 		SessionID:         5,
 		KilledBy:          2,
@@ -218,15 +228,16 @@ func TestNetconfSessionEnd_KilledBy(t *testing.T) {
 	out := mustMarshal(t, &original)
 	assert.Contains(t, out, "<killed-by>2</killed-by>")
 
-	var decoded netconf.NetconfSessionEnd
+	var decoded netconf.SessionEnd
 	require.NoError(t, xml.Unmarshal([]byte(out), &decoded))
 	assert.Equal(t, uint32(2), decoded.KilledBy)
 	assert.Equal(t, "killed", decoded.TerminationReason)
 }
 
 func TestNetconfSessionEnd_KilledByOmittedWhenZero(t *testing.T) {
+	t.Parallel()
 	// KilledBy must be absent when termination-reason is not "killed"
-	original := netconf.NetconfSessionEnd{
+	original := netconf.SessionEnd{
 		Username:          "ivan",
 		SessionID:         8,
 		KilledBy:          0, // zero — must be omitted
@@ -235,7 +246,7 @@ func TestNetconfSessionEnd_KilledByOmittedWhenZero(t *testing.T) {
 	out := mustMarshal(t, &original)
 	assert.NotContains(t, out, "<killed-by>", "KilledBy must be omitted when zero")
 
-	var decoded netconf.NetconfSessionEnd
+	var decoded netconf.SessionEnd
 	require.NoError(t, xml.Unmarshal([]byte(out), &decoded))
 	assert.Equal(t, uint32(0), decoded.KilledBy)
 	assert.Equal(t, "timeout", decoded.TerminationReason)
@@ -244,7 +255,8 @@ func TestNetconfSessionEnd_KilledByOmittedWhenZero(t *testing.T) {
 // ── NetconfConfirmedCommit ────────────────────────────────────────────────────
 
 func TestNetconfConfirmedCommit_RoundTrip(t *testing.T) {
-	original := netconf.NetconfConfirmedCommit{
+	t.Parallel()
+	original := netconf.ConfirmedCommit{
 		Username:     "judy",
 		SessionID:    15,
 		SourceHost:   "203.0.113.5",
@@ -259,7 +271,7 @@ func TestNetconfConfirmedCommit_RoundTrip(t *testing.T) {
 	assert.Contains(t, out, "<confirm-event>start</confirm-event>")
 	assert.Contains(t, out, "<timeout>600</timeout>")
 
-	var decoded netconf.NetconfConfirmedCommit
+	var decoded netconf.ConfirmedCommit
 	require.NoError(t, xml.Unmarshal([]byte(out), &decoded))
 	assert.Equal(t, "judy", decoded.Username)
 	assert.Equal(t, uint32(15), decoded.SessionID)
@@ -269,8 +281,9 @@ func TestNetconfConfirmedCommit_RoundTrip(t *testing.T) {
 }
 
 func TestNetconfConfirmedCommit_TimeoutEvent(t *testing.T) {
+	t.Parallel()
 	// confirm-event=timeout means no user session — Username/SessionID absent
-	original := netconf.NetconfConfirmedCommit{
+	original := netconf.ConfirmedCommit{
 		ConfirmEvent: "timeout",
 	}
 	out := mustMarshal(t, &original)
@@ -278,7 +291,7 @@ func TestNetconfConfirmedCommit_TimeoutEvent(t *testing.T) {
 	assert.NotContains(t, out, "<session-id>", "session-id must be absent for timeout event")
 	assert.Contains(t, out, "<confirm-event>timeout</confirm-event>")
 
-	var decoded netconf.NetconfConfirmedCommit
+	var decoded netconf.ConfirmedCommit
 	require.NoError(t, xml.Unmarshal([]byte(out), &decoded))
 	assert.Empty(t, decoded.Username)
 	assert.Equal(t, uint32(0), decoded.SessionID)
@@ -286,6 +299,7 @@ func TestNetconfConfirmedCommit_TimeoutEvent(t *testing.T) {
 }
 
 func TestNetconfConfirmedCommit_UnmarshalFromWire(t *testing.T) {
+	t.Parallel()
 	wire := `<netconf-confirmed-commit xmlns="urn:ietf:params:xml:ns:yang:ietf-netconf-notifications">
   <username>kate</username>
   <session-id>20</session-id>
@@ -294,7 +308,7 @@ func TestNetconfConfirmedCommit_UnmarshalFromWire(t *testing.T) {
   <timeout>300</timeout>
 </netconf-confirmed-commit>`
 
-	var decoded netconf.NetconfConfirmedCommit
+	var decoded netconf.ConfirmedCommit
 	require.NoError(t, xml.Unmarshal([]byte(wire), &decoded))
 	assert.Equal(t, "kate", decoded.Username)
 	assert.Equal(t, uint32(20), decoded.SessionID)
@@ -309,6 +323,7 @@ func TestNetconfConfirmedCommit_UnmarshalFromWire(t *testing.T) {
 // documented in the package godoc and L008. Notification.Body contains sibling
 // nodes (eventTime + the notification element), so callers must wrap before decoding.
 func TestNotificationBody_WrapperDecode(t *testing.T) {
+	t.Parallel()
 	// Simulate what Notification.Body looks like after xml.Unmarshal of a full
 	// notification envelope — it contains both <eventTime> and the content element.
 	simulatedBody := []byte(
@@ -320,7 +335,7 @@ func TestNotificationBody_WrapperDecode(t *testing.T) {
 
 	// Direct unmarshal into NetconfSessionStart MUST fail or produce empty struct,
 	// because the bytes do not form a single-root document.
-	var direct netconf.NetconfSessionStart
+	var direct netconf.SessionStart
 	// We don't assert failure here — the behavior is implementation-defined for
 	// multi-root bytes — but after the direct attempt the struct should be empty.
 	_ = xml.Unmarshal(simulatedBody, &direct)
@@ -329,7 +344,7 @@ func TestNotificationBody_WrapperDecode(t *testing.T) {
 	// Correct approach: synthetic wrapper
 	wrapped := append([]byte("<w>"), append(simulatedBody, []byte("</w>")...)...)
 	var wrapper struct {
-		SessionStart netconf.NetconfSessionStart `xml:"netconf-session-start"`
+		SessionStart netconf.SessionStart `xml:"netconf-session-start"`
 	}
 	require.NoError(t, xml.Unmarshal(wrapped, &wrapper))
 	assert.Equal(t, "leo", wrapper.SessionStart.Username)
@@ -339,6 +354,7 @@ func TestNotificationBody_WrapperDecode(t *testing.T) {
 // ── Namespace constant distinctness ──────────────────────────────────────────
 
 func TestNamespaceConstants_AreDistinct(t *testing.T) {
+	t.Parallel()
 	assert.NotEqual(t, netconf.NetconfNS, netconf.NotificationNS,
 		"base NS and notification envelope NS must differ")
 	assert.NotEqual(t, netconf.NotificationNS, netconf.NetconfNotificationsNS,
@@ -350,6 +366,7 @@ func TestNamespaceConstants_AreDistinct(t *testing.T) {
 // ── XML element name verification ────────────────────────────────────────────
 
 func TestNotificationTypes_ElementNames(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		value   any
@@ -357,32 +374,33 @@ func TestNotificationTypes_ElementNames(t *testing.T) {
 	}{
 		{
 			"NetconfConfigChange",
-			&netconf.NetconfConfigChange{ChangedBy: netconf.ChangedBy{Username: "x"}},
+			&netconf.ConfigChange{ChangedBy: netconf.ChangedBy{Username: "x"}},
 			"netconf-config-change",
 		},
 		{
 			"NetconfCapabilityChange",
-			&netconf.NetconfCapabilityChange{ChangedBy: netconf.ChangedBy{Username: "x"}},
+			&netconf.CapabilityChange{ChangedBy: netconf.ChangedBy{Username: "x"}},
 			"netconf-capability-change",
 		},
 		{
 			"NetconfSessionStart",
-			&netconf.NetconfSessionStart{Username: "x", SessionID: 1},
+			&netconf.SessionStart{Username: "x", SessionID: 1},
 			"netconf-session-start",
 		},
 		{
 			"NetconfSessionEnd",
-			&netconf.NetconfSessionEnd{Username: "x", SessionID: 1, TerminationReason: "closed"},
+			&netconf.SessionEnd{Username: "x", SessionID: 1, TerminationReason: "closed"},
 			"netconf-session-end",
 		},
 		{
 			"NetconfConfirmedCommit",
-			&netconf.NetconfConfirmedCommit{ConfirmEvent: "start"},
+			&netconf.ConfirmedCommit{ConfirmEvent: "start"},
 			"netconf-confirmed-commit",
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			out := mustMarshal(t, tc.value)
 			assertNotificationsNS(t, out)
 			assert.True(t,

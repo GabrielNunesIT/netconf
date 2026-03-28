@@ -36,7 +36,7 @@ import (
 // can switch framing after the hello exchange.
 type Transport struct {
 	framer  *transport.Framer
-	channel io.Closer // gossh.Channel (for NewClientTransport) or *sessionRW (for Dial)
+	channel io.Closer  // gossh.Channel (for NewClientTransport) or *sessionRW (for Dial)
 	conn    gossh.Conn // non-nil only when created via Dial
 }
 
@@ -115,7 +115,7 @@ type sessionRW struct {
 
 func (s *sessionRW) Read(p []byte) (int, error)  { return s.stdout.Read(p) }
 func (s *sessionRW) Write(p []byte) (int, error) { return s.stdin.Write(p) }
-func (s *sessionRW) Close() error                 { return s.sess.Close() }
+func (s *sessionRW) Close() error                { return s.sess.Close() }
 
 // openNetconfSubsystem opens a new SSH session on client, requests the
 // "netconf" subsystem, and returns a sessionRW bridging the session's

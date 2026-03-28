@@ -20,6 +20,7 @@ package tls
 import (
 	cryptotls "crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -118,7 +119,7 @@ func (l *Listener) Accept() (*ServerTransport, error) {
 	select {
 	case t, ok := <-l.transportCh:
 		if !ok {
-			return nil, fmt.Errorf("tls server: listener closed")
+			return nil, errors.New("tls server: listener closed")
 		}
 		return t, nil
 	case err := <-l.errCh:

@@ -219,5 +219,3 @@ func certFingerprint(cert *x509.Certificate) []byte {
 	fp := sha256.Sum256(cert.Raw)
 	return fp[:]
 }
-
-

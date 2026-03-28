@@ -57,10 +57,10 @@ type RPC struct {
 // For operations returning data, Body contains the raw inner XML.
 // For errors, Body contains one or more <rpc-error> elements.
 type RPCReply struct {
-	XMLName   xml.Name `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 rpc-reply"`
-	MessageID string   `xml:"message-id,attr"`
+	XMLName   xml.Name  `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 rpc-reply"`
+	MessageID string    `xml:"message-id,attr"`
 	Ok        *struct{} `xml:"ok"`
-	Body      []byte   `xml:",innerxml"`
+	Body      []byte    `xml:",innerxml"`
 }
 
 // Notification represents a NETCONF <notification> event message (RFC 5277 §4).

@@ -19,13 +19,14 @@ func mkProtocolOpRequest(user string, groups []string, module, rpc string) nacm.
 }
 
 // mkNotificationRequest builds a Request for a notification delivery check.
-func mkNotificationRequest(user string, groups []string, module, notif string) nacm.Request {
+// module is always "ietf-netconf-notifications" per the RFC 6470 YANG module.
+func mkNotificationRequest(user string, groups []string, notif string) nacm.Request {
 	return nacm.Request{
 		User:          user,
 		Groups:        groups,
 		OperationType: nacm.OpNotification,
 		OperationName: notif,
-		ModuleName:    module,
+		ModuleName:    "ietf-netconf-notifications",
 	}
 }
 
@@ -38,6 +39,7 @@ func minimalCfg() nacm.Nacm {
 
 // TestEnforce_DecisionString verifies that Decision.String() returns readable values.
 func TestEnforce_DecisionString(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, "permit", nacm.Permit.String())
 	assert.Equal(t, "deny", nacm.Deny.String())
 	assert.Equal(t, "default-deny", nacm.DefaultDeny.String())
@@ -48,6 +50,7 @@ func TestEnforce_DecisionString(t *testing.T) {
 // TestEnforce_NacmDisabled verifies that when NACM is disabled, all requests
 // are permitted regardless of configured rules.
 func TestEnforce_NacmDisabled(t *testing.T) {
+	t.Parallel()
 	cfg := nacm.Nacm{
 		EnableNacm: false,
 		RuleLists: []nacm.RuleList{
@@ -56,7 +59,7 @@ func TestEnforce_NacmDisabled(t *testing.T) {
 				Group: []string{},
 				Rules: []nacm.Rule{
 					{
-						Name:  "deny-all",
+						Name:              "deny-all",
 						ProtocolOperation: &nacm.ProtocolOperationRule{RPCName: "*"},
 						AccessOperations:  "*",
 						Action:            nacm.ActionDeny,
@@ -69,7 +72,7 @@ func TestEnforce_NacmDisabled(t *testing.T) {
 	req := mkProtocolOpRequest("alice", []string{"admin"}, "ietf-netconf", "get-config")
 	assert.Equal(t, nacm.Permit, nacm.Enforce(cfg, req), "NACM disabled must always permit")
 
-	req2 := mkNotificationRequest("alice", []string{"admin"}, "ietf-netconf-notifications", "netconf-config-change")
+	req2 := mkNotificationRequest("alice", []string{"admin"}, "netconf-config-change")
 	assert.Equal(t, nacm.Permit, nacm.Enforce(cfg, req2), "NACM disabled must always permit notifications")
 }
 
@@ -78,6 +81,7 @@ func TestEnforce_NacmDisabled(t *testing.T) {
 // TestEnforce_ProtocolOperation_Permit verifies a rule that explicitly permits
 // a specific protocol operation results in Permit.
 func TestEnforce_ProtocolOperation_Permit(t *testing.T) {
+	t.Parallel()
 	cfg := nacm.Nacm{
 		EnableNacm: true,
 		RuleLists: []nacm.RuleList{
@@ -106,6 +110,7 @@ func TestEnforce_ProtocolOperation_Permit(t *testing.T) {
 // TestEnforce_ProtocolOperation_Deny verifies a rule that explicitly denies
 // a specific protocol operation results in Deny.
 func TestEnforce_ProtocolOperation_Deny(t *testing.T) {
+	t.Parallel()
 	cfg := nacm.Nacm{
 		EnableNacm: true,
 		RuleLists: []nacm.RuleList{
@@ -136,6 +141,7 @@ func TestEnforce_ProtocolOperation_Deny(t *testing.T) {
 // TestEnforce_Notification_Permit verifies a notification rule that permits
 // results in Permit.
 func TestEnforce_Notification_Permit(t *testing.T) {
+	t.Parallel()
 	cfg := nacm.Nacm{
 		EnableNacm: true,
 		RuleLists: []nacm.RuleList{
@@ -157,13 +163,14 @@ func TestEnforce_Notification_Permit(t *testing.T) {
 		},
 	}
 
-	req := mkNotificationRequest("alice", []string{"admin"}, "ietf-netconf-notifications", "netconf-config-change")
+	req := mkNotificationRequest("alice", []string{"admin"}, "netconf-config-change")
 	assert.Equal(t, nacm.Permit, nacm.Enforce(cfg, req))
 }
 
 // TestEnforce_Notification_Deny verifies a notification rule that denies
 // results in Deny.
 func TestEnforce_Notification_Deny(t *testing.T) {
+	t.Parallel()
 	cfg := nacm.Nacm{
 		EnableNacm: true,
 		RuleLists: []nacm.RuleList{
@@ -183,7 +190,7 @@ func TestEnforce_Notification_Deny(t *testing.T) {
 		},
 	}
 
-	req := mkNotificationRequest("dave", []string{"restricted"}, "ietf-netconf-notifications", "netconf-session-start")
+	req := mkNotificationRequest("dave", []string{"restricted"}, "netconf-session-start")
 	assert.Equal(t, nacm.Deny, nacm.Enforce(cfg, req))
 }
 
@@ -192,6 +199,7 @@ func TestEnforce_Notification_Deny(t *testing.T) {
 // TestEnforce_DefaultDeny verifies that when no rule matches, DefaultDeny
 // is returned.
 func TestEnforce_DefaultDeny(t *testing.T) {
+	t.Parallel()
 	// No rules at all.
 	assert.Equal(t, nacm.DefaultDeny, nacm.Enforce(minimalCfg(),
 		mkProtocolOpRequest("alice", []string{"admin"}, "ietf-netconf", "get")))
@@ -224,6 +232,7 @@ func TestEnforce_DefaultDeny(t *testing.T) {
 // TestEnforce_FirstMatchWins verifies that the first matching rule in a
 // rule-list determines the decision, even when subsequent rules would disagree.
 func TestEnforce_FirstMatchWins(t *testing.T) {
+	t.Parallel()
 	cfg := nacm.Nacm{
 		EnableNacm: true,
 		RuleLists: []nacm.RuleList{
@@ -259,6 +268,7 @@ func TestEnforce_FirstMatchWins(t *testing.T) {
 // TestEnforce_FirstMatchWins_AcrossLists verifies that earlier rule-lists
 // take precedence over later ones.
 func TestEnforce_FirstMatchWins_AcrossLists(t *testing.T) {
+	t.Parallel()
 	cfg := nacm.Nacm{
 		EnableNacm: true,
 		RuleLists: []nacm.RuleList{
@@ -298,6 +308,7 @@ func TestEnforce_FirstMatchWins_AcrossLists(t *testing.T) {
 // TestEnforce_WildcardRPC verifies that a rule with RPCName="*" matches any
 // protocol operation.
 func TestEnforce_WildcardRPC(t *testing.T) {
+	t.Parallel()
 	cfg := nacm.Nacm{
 		EnableNacm: true,
 		RuleLists: []nacm.RuleList{
@@ -325,6 +336,7 @@ func TestEnforce_WildcardRPC(t *testing.T) {
 // TestEnforce_WildcardModule verifies that a rule with ModuleName="*" matches
 // any module.
 func TestEnforce_WildcardModule(t *testing.T) {
+	t.Parallel()
 	cfg := nacm.Nacm{
 		EnableNacm: true,
 		RuleLists: []nacm.RuleList{
@@ -353,6 +365,7 @@ func TestEnforce_WildcardModule(t *testing.T) {
 // TestEnforce_WildcardAccessOperations verifies that AccessOperations="*"
 // matches any operation type.
 func TestEnforce_WildcardAccessOperations(t *testing.T) {
+	t.Parallel()
 	cfg := nacm.Nacm{
 		EnableNacm: true,
 		RuleLists: []nacm.RuleList{
@@ -380,6 +393,7 @@ func TestEnforce_WildcardAccessOperations(t *testing.T) {
 // TestEnforce_GroupFilter verifies that a rule-list with a specific Group
 // list only applies when the user is a member of one of those groups.
 func TestEnforce_GroupFilter(t *testing.T) {
+	t.Parallel()
 	cfg := nacm.Nacm{
 		EnableNacm: true,
 		RuleLists: []nacm.RuleList{
@@ -414,6 +428,7 @@ func TestEnforce_GroupFilter(t *testing.T) {
 // TestEnforce_EmptyGroupList verifies that a rule-list with an empty Group
 // slice applies to all users regardless of group membership.
 func TestEnforce_EmptyGroupList(t *testing.T) {
+	t.Parallel()
 	cfg := nacm.Nacm{
 		EnableNacm: true,
 		RuleLists: []nacm.RuleList{
@@ -449,6 +464,7 @@ func TestEnforce_EmptyGroupList(t *testing.T) {
 // TestEnforce_RuleTypeMismatch verifies that a protocol-operation rule does not
 // match a notification request, and vice versa.
 func TestEnforce_RuleTypeMismatch(t *testing.T) {
+	t.Parallel()
 	cfg := nacm.Nacm{
 		EnableNacm: true,
 		RuleLists: []nacm.RuleList{
@@ -468,7 +484,7 @@ func TestEnforce_RuleTypeMismatch(t *testing.T) {
 	}
 
 	// Notification request should not match a protocol-operation rule.
-	req := mkNotificationRequest("alice", []string{"admin"}, "ietf-netconf-notifications", "netconf-config-change")
+	req := mkNotificationRequest("alice", []string{"admin"}, "netconf-config-change")
 	assert.Equal(t, nacm.DefaultDeny, nacm.Enforce(cfg, req),
 		"notification request must not match protocol-operation rule")
 }
@@ -478,6 +494,7 @@ func TestEnforce_RuleTypeMismatch(t *testing.T) {
 // TestEnforce_ModuleMismatch verifies that a rule with a specific module name
 // does not match requests from a different module.
 func TestEnforce_ModuleMismatch(t *testing.T) {
+	t.Parallel()
 	cfg := nacm.Nacm{
 		EnableNacm: true,
 		RuleLists: []nacm.RuleList{
@@ -508,6 +525,7 @@ func TestEnforce_ModuleMismatch(t *testing.T) {
 // TestEnforce_AccessOperations_SpaceSeparated verifies that space-separated
 // access-operations values work correctly.
 func TestEnforce_AccessOperations_SpaceSeparated(t *testing.T) {
+	t.Parallel()
 	cfg := nacm.Nacm{
 		EnableNacm: true,
 		RuleLists: []nacm.RuleList{
@@ -534,6 +552,7 @@ func TestEnforce_AccessOperations_SpaceSeparated(t *testing.T) {
 // TestEnforce_AccessOperations_NoExec verifies that a rule with only "read"
 // access does not match a protocol-operation request (which requires "exec").
 func TestEnforce_AccessOperations_NoExec(t *testing.T) {
+	t.Parallel()
 	cfg := nacm.Nacm{
 		EnableNacm: true,
 		RuleLists: []nacm.RuleList{

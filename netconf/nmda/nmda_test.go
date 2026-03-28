@@ -11,12 +11,14 @@ import (
 
 // TestNmda_NamespaceConstant verifies the NmdaNS and CapabilityURI constants.
 func TestNmda_NamespaceConstant(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, "urn:ietf:params:xml:ns:yang:ietf-netconf-nmda", nmda.NmdaNS)
 	assert.Equal(t, nmda.NmdaNS, nmda.CapabilityURI, "CapabilityURI must equal NmdaNS")
 }
 
 // TestNmda_DatastoreConstants verifies the NMDA datastore URN constants.
 func TestNmda_DatastoreConstants(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, "urn:ietf:params:netconf:datastore:running", nmda.DatastoreRunning)
 	assert.Equal(t, "urn:ietf:params:netconf:datastore:candidate", nmda.DatastoreCandidate)
 	assert.Equal(t, "urn:ietf:params:netconf:datastore:startup", nmda.DatastoreStartup)
@@ -38,9 +40,10 @@ func TestNmda_DatastoreConstants(t *testing.T) {
 // TestGetData_RoundTrip verifies a GetData request with datastore, xpath filter,
 // with-origin, and max-depth round-trips correctly.
 func TestGetData_RoundTrip(t *testing.T) {
+	t.Parallel()
 	original := nmda.GetData{
 		Datastore:  nmda.DatastoreRef{Name: nmda.DatastoreOperational},
-		Filter:     &nmda.NmdaFilter{Type: "xpath", Select: "/interfaces/interface[enabled='true']"},
+		Filter:     &nmda.Filter{Type: "xpath", Select: "/interfaces/interface[enabled='true']"},
 		WithOrigin: &struct{}{},
 		MaxDepth:   5,
 	}
@@ -71,10 +74,11 @@ func TestGetData_RoundTrip(t *testing.T) {
 // TestGetData_SubtreeFilter verifies that a GetData request with a subtree
 // filter emits the filter content as raw XML (not escaped text).
 func TestGetData_SubtreeFilter(t *testing.T) {
+	t.Parallel()
 	filterContent := []byte(`<interfaces xmlns="urn:ietf:params:xml:ns:yang:ietf-interfaces"/>`)
 	req := nmda.GetData{
 		Datastore: nmda.DatastoreRef{Name: nmda.DatastoreOperational},
-		Filter:    &nmda.NmdaFilter{Content: filterContent},
+		Filter:    &nmda.Filter{Content: filterContent},
 	}
 
 	b, err := xml.Marshal(req)
@@ -91,6 +95,7 @@ func TestGetData_SubtreeFilter(t *testing.T) {
 // default-operation, and a config body. Asserts the config body is emitted as
 // raw inner XML (not escaped).
 func TestEditData_RoundTrip(t *testing.T) {
+	t.Parallel()
 	configBody := []byte(`<interfaces xmlns="urn:ietf:params:xml:ns:yang:ietf-interfaces"><interface><name>eth0</name></interface></interfaces>`)
 
 	original := nmda.EditData{
@@ -119,6 +124,7 @@ func TestEditData_RoundTrip(t *testing.T) {
 
 // TestDeleteData_RoundTrip verifies DeleteData round-trip.
 func TestDeleteData_RoundTrip(t *testing.T) {
+	t.Parallel()
 	original := nmda.DeleteData{
 		Datastore: nmda.DatastoreRef{Name: nmda.DatastoreCandidate},
 	}
@@ -138,6 +144,7 @@ func TestDeleteData_RoundTrip(t *testing.T) {
 
 // TestCopyData_RoundTrip verifies CopyData with Source=Running, Target=Startup.
 func TestCopyData_RoundTrip(t *testing.T) {
+	t.Parallel()
 	original := nmda.CopyData{
 		Source: nmda.DatastoreRef{Name: nmda.DatastoreRunning},
 		Target: nmda.DatastoreRef{Name: nmda.DatastoreStartup},
@@ -163,6 +170,7 @@ func TestCopyData_RoundTrip(t *testing.T) {
 // TestGetData_OmitOptional verifies that a GetData with only the Datastore field
 // does not emit optional elements.
 func TestGetData_OmitOptional(t *testing.T) {
+	t.Parallel()
 	req := nmda.GetData{
 		Datastore: nmda.DatastoreRef{Name: nmda.DatastoreRunning},
 	}

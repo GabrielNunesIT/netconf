@@ -24,6 +24,7 @@ func mustMarshal(t *testing.T, v any) []byte {
 // marshals to XML with the correct monitoring namespace and then unmarshals
 // back to an equal value.
 func TestNetconfState_RoundTrip(t *testing.T) {
+	t.Parallel()
 	original := monitoring.NetconfState{
 		Capabilities: []string{
 			"urn:ietf:params:netconf:base:1.0",
@@ -76,14 +77,14 @@ func TestNetconfState_RoundTrip(t *testing.T) {
 			},
 		},
 		Statistics: &monitoring.Statistics{
-			NetconfStartTime:  "2024-01-01T00:00:00Z",
-			InBadHellos:       2,
-			InSessions:        50,
-			DroppedSessions:   3,
-			InRPCs:            1000,
-			InBadRPCs:         5,
-			OutRPCErrors:      2,
-			OutNotifications:  100,
+			NetconfStartTime: "2024-01-01T00:00:00Z",
+			InBadHellos:      2,
+			InSessions:       50,
+			DroppedSessions:  3,
+			InRPCs:           1000,
+			InBadRPCs:        5,
+			OutRPCErrors:     2,
+			OutNotifications: 100,
 		},
 	}
 
@@ -138,6 +139,7 @@ func TestNetconfState_RoundTrip(t *testing.T) {
 // <netconf-state> document (simulating a server response) and verifies all
 // fields parse correctly.
 func TestNetconfState_UnmarshalFromWire(t *testing.T) {
+	t.Parallel()
 	const wireXML = `<netconf-state xmlns="urn:ietf:params:xml:ns:yang:ietf-netconf-monitoring">` +
 		`<capabilities>` +
 		`<capability>urn:ietf:params:netconf:base:1.1</capability>` +
@@ -213,7 +215,9 @@ func TestNetconfState_UnmarshalFromWire(t *testing.T) {
 // correct monitoring namespace on the <get-schema> element, and that optional
 // fields are omitted when empty.
 func TestGetSchemaRequest_Marshal(t *testing.T) {
+	t.Parallel()
 	t.Run("full", func(t *testing.T) {
+		t.Parallel()
 		req := monitoring.GetSchemaRequest{
 			Identifier: "ietf-interfaces",
 			Version:    "2018-02-20",
@@ -236,6 +240,7 @@ func TestGetSchemaRequest_Marshal(t *testing.T) {
 	})
 
 	t.Run("identifier_only", func(t *testing.T) {
+		t.Parallel()
 		req := monitoring.GetSchemaRequest{Identifier: "ietf-netconf"}
 		xmlBytes := mustMarshal(t, req)
 		xmlStr := string(xmlBytes)
@@ -255,6 +260,7 @@ func TestGetSchemaRequest_Marshal(t *testing.T) {
 // TestGetSchemaReply_Unmarshal verifies that raw schema text content in a
 // <data> element survives unmarshal as []byte in GetSchemaReply.Content.
 func TestGetSchemaReply_Unmarshal(t *testing.T) {
+	t.Parallel()
 	const yangSchema = `module ietf-interfaces {
   yang-version 1.1;
   namespace "urn:ietf:params:xml:ns:yang:ietf-interfaces";
@@ -278,6 +284,7 @@ func TestGetSchemaReply_Unmarshal(t *testing.T) {
 // TestGetSchemaReply_MarshalRoundTrip verifies that GetSchemaReply also
 // marshals correctly (in case a test or tool needs to re-encode it).
 func TestGetSchemaReply_MarshalRoundTrip(t *testing.T) {
+	t.Parallel()
 	original := monitoring.GetSchemaReply{
 		Content: []byte(`<yang-text>module foo { }</yang-text>`),
 	}
@@ -301,7 +308,9 @@ func TestGetSchemaReply_MarshalRoundTrip(t *testing.T) {
 // TestSession_RoundTrip verifies that Session marshals and unmarshals correctly
 // including the omitempty behaviour on SourceHost.
 func TestSession_RoundTrip(t *testing.T) {
+	t.Parallel()
 	t.Run("with_source_host", func(t *testing.T) {
+		t.Parallel()
 		original := monitoring.Session{
 			SessionID:        99,
 			Transport:        "netconf-tls",
@@ -320,6 +329,7 @@ func TestSession_RoundTrip(t *testing.T) {
 	})
 
 	t.Run("without_source_host", func(t *testing.T) {
+		t.Parallel()
 		original := monitoring.Session{
 			SessionID: 1,
 			Transport: "netconf-ssh",
@@ -341,15 +351,16 @@ func TestSession_RoundTrip(t *testing.T) {
 // TestStatistics_RoundTrip verifies that Statistics marshals and unmarshals
 // correctly for all counter fields.
 func TestStatistics_RoundTrip(t *testing.T) {
+	t.Parallel()
 	original := monitoring.Statistics{
-		NetconfStartTime:  "2024-01-15T08:30:00Z",
-		InBadHellos:       5,
-		InSessions:        200,
-		DroppedSessions:   10,
-		InRPCs:            5000,
-		InBadRPCs:         25,
-		OutRPCErrors:      15,
-		OutNotifications:  1000,
+		NetconfStartTime: "2024-01-15T08:30:00Z",
+		InBadHellos:      5,
+		InSessions:       200,
+		DroppedSessions:  10,
+		InRPCs:           5000,
+		InBadRPCs:        25,
+		OutRPCErrors:     15,
+		OutNotifications: 1000,
 	}
 	xmlBytes := mustMarshal(t, original)
 	t.Logf("marshaled Statistics:\n%s", string(xmlBytes))
@@ -364,6 +375,7 @@ func TestStatistics_RoundTrip(t *testing.T) {
 // TestConstants verifies the exported namespace constants have the correct
 // values as specified by RFC 6022.
 func TestConstants(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t,
 		"urn:ietf:params:xml:ns:yang:ietf-netconf-monitoring",
 		monitoring.MonitoringNS,
@@ -379,6 +391,7 @@ func TestConstants(t *testing.T) {
 // TestPartialLockInfo_RoundTrip verifies PartialLockInfo (used inside LockInfo)
 // round-trips with all fields including multiple LockedNode and Select values.
 func TestPartialLockInfo_RoundTrip(t *testing.T) {
+	t.Parallel()
 	original := monitoring.PartialLockInfo{
 		LockID:     7,
 		LockedTime: "2025-03-01T10:00:00Z",

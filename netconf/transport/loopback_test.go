@@ -13,6 +13,7 @@ import (
 // ── Basic loopback round-trip ─────────────────────────────────────────────────
 
 func TestLoopback_ClientWritesServerReads(t *testing.T) {
+	t.Parallel()
 	client, server := transport.NewLoopback()
 	defer client.Close()
 	defer server.Close()
@@ -33,6 +34,7 @@ func TestLoopback_ClientWritesServerReads(t *testing.T) {
 }
 
 func TestLoopback_ServerWritesClientReads(t *testing.T) {
+	t.Parallel()
 	client, server := transport.NewLoopback()
 	defer client.Close()
 	defer server.Close()
@@ -54,6 +56,7 @@ func TestLoopback_ServerWritesClientReads(t *testing.T) {
 // ── Full request/response round-trip ─────────────────────────────────────────
 
 func TestLoopback_RoundTrip_RequestResponse(t *testing.T) {
+	t.Parallel()
 	client, server := transport.NewLoopback()
 	defer client.Close()
 	defer server.Close()
@@ -103,6 +106,7 @@ func TestLoopback_RoundTrip_RequestResponse(t *testing.T) {
 // ── Multiple sequential messages ─────────────────────────────────────────────
 
 func TestLoopback_MultipleMessages_Sequential(t *testing.T) {
+	t.Parallel()
 	client, server := transport.NewLoopback()
 	defer client.Close()
 	defer server.Close()
@@ -136,6 +140,7 @@ func TestLoopback_MultipleMessages_Sequential(t *testing.T) {
 // ── EOM then chunked (Upgrade mid-stream) ─────────────────────────────────────
 
 func TestLoopback_Upgrade_EOMModeToChunked(t *testing.T) {
+	t.Parallel()
 	client, server := transport.NewLoopback()
 	defer client.Close()
 	defer server.Close()
@@ -201,6 +206,7 @@ func TestLoopback_Upgrade_EOMModeToChunked(t *testing.T) {
 // ── Close makes subsequent calls error ───────────────────────────────────────
 
 func TestLoopback_Close_MakesReadsError(t *testing.T) {
+	t.Parallel()
 	client, server := transport.NewLoopback()
 	require.NoError(t, client.Close())
 
@@ -221,6 +227,7 @@ func TestLoopback_Close_MakesReadsError(t *testing.T) {
 // *LoopbackTransport satisfies transport.Transport and transport.Upgrader.
 // If the interface is not satisfied, this file will not compile.
 func TestLoopback_ImplementsTransport(t *testing.T) {
+	t.Parallel()
 	client, server := transport.NewLoopback()
 	defer client.Close()
 	defer server.Close()

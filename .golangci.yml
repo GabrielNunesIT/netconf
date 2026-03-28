@@ -2,10 +2,65 @@ version: "2"
 
 linters:
   enable:
-    - modernize
-    - staticcheck
+    # Default linters
     - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
     - unused
+
+    # Additional linters
+    - asasalint
+    - asciicheck
+    - bidichk
+    - copyloopvar
+    - decorder
+    - dogsled
+    - dupl
+    - dupword
+    - durationcheck
+    - errname
+    - exhaustive
+    - exptostd
+    - fatcontext
+    - ginkgolinter
+    - gocheckcompilerdirectives
+    - gochecknoinits
+    - gocritic
+    - goprintffuncname
+    - gosec
+    - iface
+    - importas
+    - inamedparam
+    - intrange
+    - ireturn
+    - mirror
+    - misspell
+    - modernize
+    - musttag
+    - nestif
+    - nilerr
+    - nilnesserr
+    - nilnil
+    - nolintlint
+    - nosprintfhostport
+    - paralleltest
+    - perfsprint
+    - prealloc
+    - protogetter
+    - reassign
+    - recvcheck
+    - revive
+    - rowserrcheck
+    - sqlclosecheck
+    - thelper
+    - tparallel
+    - unparam
+    - usestdlibvars
+    - usetesting
+    - wastedassign
+    - whitespace
+    - wrapcheck
 
   exclusions:
     rules:
@@ -15,9 +70,148 @@ linters:
       - path: "_test\\.go"
         linters:
           - errcheck
+
       # fmt.Fprintf to a REPL error/output writer — write failures are
       # unrecoverable in an interactive REPL context.
       - path: "cmd/netconf/repl/.*\\.go"
         linters:
           - errcheck
         text: "fmt\\.Fprintf"
+
+      # dupl: test helpers that differ only in type/config are intentionally
+      # duplicated for clarity — extracting them into shared helpers would
+      # require generics or interface{} and reduce readability.
+      - path: "_test\\.go"
+        linters:
+          - dupl
+
+      # ireturn: test helper functions that return crypto/ssh.Signer or
+      # transport.Transport interfaces — returning the concrete type would
+      # break the call site or require callers to import the concrete package.
+      - path: "_test\\.go"
+        linters:
+          - ireturn
+
+      # ireturn: nacmGuard is a factory that wraps an arbitrary server.Handler
+      # with NACM enforcement — it must return the Handler interface by design.
+      - path: "conformance_test\\.go"
+        linters:
+          - ireturn
+        text: "nacmGuard"
+
+      # gosec G106: InsecureIgnoreHostKey is used intentionally in tests and
+      # in the connect.go dev-mode path (already guarded by --insecure flag).
+      - path: "_test\\.go"
+        linters:
+          - gosec
+        text: "G106"
+
+      # gosec G104: unhandled errors in test cleanup (Close calls inside
+      # t.Cleanup / defer) — same rationale as errcheck exclusion above.
+      - path: "_test\\.go"
+        linters:
+          - gosec
+        text: "G104"
+
+      # gosec G304: file path from variable — readConfig and parseFilter are
+      # deliberately user-driven; they operate on paths the operator supplies.
+      - path: "cmd/netconf/repl/operations\\.go"
+        linters:
+          - gosec
+        text: "G304"
+
+      # gosec G115: integer overflow int→uint32 — the timeout value comes from
+      # a bounded flag (positive int supplied by the operator) and is safe.
+      - path: "cmd/netconf/repl/operations\\.go"
+        linters:
+          - gosec
+        text: "G115"
+
+      # wrapcheck: REPL package — errors from stdlib/readline are already
+      # descriptive; the REPL prints them to errW and discards them, so
+      # wrapping adds no diagnostic value.
+      - path: "cmd/netconf/repl/.*\\.go"
+        linters:
+          - wrapcheck
+
+      # wrapcheck: thin passthrough methods on transport types delegate
+      # directly to the underlying io.Pipe / net.Listener / SSH channel /
+      # bytes.Buffer. Wrapping these errors adds no diagnostic value — the
+      # call site is one line and the underlying error is already descriptive.
+      - path: "netconf/transport/loopback\\.go"
+        linters:
+          - wrapcheck
+      - path: "netconf/transport/framer\\.go"
+        linters:
+          - wrapcheck
+      - path: "netconf/transport/ssh/client\\.go"
+        linters:
+          - wrapcheck
+      - path: "netconf/transport/ssh/server\\.go"
+        linters:
+          - wrapcheck
+        text: "error returned from interface method"
+      - path: "netconf/transport/tls/server\\.go"
+        linters:
+          - wrapcheck
+        text: "error returned from interface method"
+
+      # wrapcheck: Session.Close/Send/Recv are thin one-line delegations to
+      # the transport layer. The transport errors are already context-rich.
+      - path: "netconf/session\\.go"
+        linters:
+          - wrapcheck
+
+      # wrapcheck: server.go sendReply/buildErrorReply — xml.Marshal and
+      # sess.Send errors are wrapped with context at the call sites in ServeRPC.
+      - path: "netconf/server/server\\.go"
+        linters:
+          - wrapcheck
+
+      # wrapcheck: framer_test.go readOnlyRW is a test helper that forwards
+      # bytes.Reader.Read — no wrapping needed in a test shim.
+      - path: "netconf/transport/framer_test\\.go"
+        linters:
+          - wrapcheck
+
+      # wrapcheck: test files — errors from helper calls inside conformance
+      # tests and table-driven test cases don't need re-wrapping.
+      - path: "_test\\.go"
+        linters:
+          - wrapcheck
+
+      # wrapcheck: client.go — ctx.Err() and sess.Close() in Close/Do are
+      # propagated as-is intentionally; callers use errors.Is(ctx.Done()).
+      - path: "netconf/client/client\\.go"
+        linters:
+          - wrapcheck
+
+      # revive package-comments: server.go files use a file-level doc comment
+      # (explains the file's role in the package) rather than a package-level
+      # comment. The package doc lives in the client/client.go or a doc.go.
+      - path: "netconf/transport/(ssh|tls)/server\\.go"
+        linters:
+          - revive
+        text: "package-comments"
+
+      # paralleltest: integration tests that share a loopback transport, SSH
+      # server goroutine, or TLS listener cannot run in parallel without
+      # additional synchronisation — they are intentionally sequential.
+      - path: "netconf/conformance/conformance_test\\.go"
+        linters:
+          - paralleltest
+      - path: "netconf/transport/ssh/ssh_test\\.go"
+        linters:
+          - paralleltest
+      - path: "netconf/transport/ssh/callhome_test\\.go"
+        linters:
+          - paralleltest
+      - path: "netconf/client/(client|callhome|nmda|subscriptions|notification|yangpush)_test\\.go"
+        linters:
+          - paralleltest
+      - path: "cmd/netconf/repl/(operations|connect)_test\\.go"
+        linters:
+          - paralleltest
+formatters:
+  enable:
+    - goimports

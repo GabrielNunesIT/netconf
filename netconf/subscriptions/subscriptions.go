@@ -105,12 +105,12 @@ type FilterSpec struct {
 //     Included here for forward compatibility; S05 uses this field.
 //   - Dscp:       optional DSCP value for network-level QoS marking.
 type EstablishSubscriptionRequest struct {
-	XMLName   xml.Name    `xml:"urn:ietf:params:xml:ns:yang:ietf-subscriptions establish-subscription"`
-	Stream    string      `xml:"stream,omitempty"`
-	Filter    *FilterSpec `xml:"filter,omitempty"`
-	StopTime  string      `xml:"stop-time,omitempty"`
-	Period    uint64      `xml:"period,omitempty"`
-	Dscp      uint8       `xml:"dscp,omitempty"`
+	XMLName  xml.Name    `xml:"urn:ietf:params:xml:ns:yang:ietf-subscriptions establish-subscription"`
+	Stream   string      `xml:"stream,omitempty"`
+	Filter   *FilterSpec `xml:"filter,omitempty"`
+	StopTime string      `xml:"stop-time,omitempty"`
+	Period   uint64      `xml:"period,omitempty"`
+	Dscp     uint8       `xml:"dscp,omitempty"`
 }
 
 // EstablishSubscriptionReply is the establish-subscription RPC output
