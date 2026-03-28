@@ -3,7 +3,7 @@ package repl
 import (
 	"context"
 
-	"github.com/GabrielNunesIT/netconf/netconf/client"
+	"github.com/GabrielNunesIT/netconf/client"
 )
 
 // Session holds live NETCONF connection state for the REPL.

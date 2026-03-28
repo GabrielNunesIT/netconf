@@ -10,11 +10,11 @@ A pure-Go implementation of the NETCONF management protocol, covering:
 
 | Import path | Description |
 |-------------|-------------|
-| `github.com/GabrielNunesIT/netconf/netconf` | Core protocol types: Hello, RPC, RPCReply messages; session management; capability negotiation; operation structs for all 13 RFC 6241 operations; error model |
-| `github.com/GabrielNunesIT/netconf/netconf/client` | NETCONF client with typed methods for all 13 operations, concurrent RPC dispatch, context support |
-| `github.com/GabrielNunesIT/netconf/netconf/server` | NETCONF server with handler registration, RPC dispatch loop, built-in close-session handling |
-| `github.com/GabrielNunesIT/netconf/netconf/transport` | Transport interface, EOM and chunked framers, loopback transport for testing |
-| `github.com/GabrielNunesIT/netconf/netconf/transport/ssh` | SSH client and server transports using `golang.org/x/crypto/ssh` |
+| `github.com/GabrielNunesIT/netconf` | Core protocol types: Hello, RPC, RPCReply messages; session management; capability negotiation; operation structs for all 13 RFC 6241 operations; error model |
+| `github.com/GabrielNunesIT/netconf/client` | NETCONF client with typed methods for all 13 operations, concurrent RPC dispatch, context support |
+| `github.com/GabrielNunesIT/netconf/server` | NETCONF server with handler registration, RPC dispatch loop, built-in close-session handling |
+| `github.com/GabrielNunesIT/netconf/transport` | Transport interface, EOM and chunked framers, loopback transport for testing |
+| `github.com/GabrielNunesIT/netconf/transport/ssh` | SSH client and server transports using `golang.org/x/crypto/ssh` |
 
 ## Requirements
 
@@ -36,8 +36,8 @@ import (
 	"fmt"
 	"log"
 
-	netconf "github.com/GabrielNunesIT/netconf/netconf"
-	"github.com/GabrielNunesIT/netconf/netconf/client"
+	netconf "github.com/GabrielNunesIT/netconf"
+	"github.com/GabrielNunesIT/netconf/client"
 	gossh "golang.org/x/crypto/ssh"
 )
 

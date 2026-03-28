@@ -26,7 +26,7 @@ Message-ids are decimal strings from an `atomic.Uint64` counter, starting at 1.
 1. **Add `Send` and `Recv` to `Session`** in `netconf/session.go`:
    - `func (s *Session) Send(msg []byte) error` — calls `transport.WriteMsg(s.trp, msg)`.
    - `func (s *Session) Recv() ([]byte, error)` — calls `transport.ReadMsg(s.trp)`.
-   - Add import for the transport package if not already present (it is — `github.com/GabrielNunesIT/netconf/netconf/transport`).
+   - Add import for the transport package if not already present (it is — `github.com/GabrielNunesIT/netconf/transport`).
    - These methods do NOT make Session safe for concurrent use — the client serialises access (Send under a mutex, Recv in a single goroutine).
 
 2. **Create `netconf/client/client.go`** with the `Client` struct:

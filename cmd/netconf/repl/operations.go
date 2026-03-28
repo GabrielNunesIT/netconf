@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	netconf "github.com/GabrielNunesIT/netconf/netconf"
+	netconf "github.com/GabrielNunesIT/netconf"
 )
 
 // dispatchOperation routes a REPL command to its handler.

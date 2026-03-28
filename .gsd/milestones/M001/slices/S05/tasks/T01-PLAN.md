@@ -20,7 +20,7 @@ The test file needs two helper functions and 10 test functions (several table-dr
 
 ## Steps
 
-1. **Create the file with package declaration and imports.** Package `conformance_test`. Import: `context`, `crypto/rand`, `crypto/rsa`, `encoding/xml`, `errors`, `net`, `testing`, `time`, `github.com/GabrielNunesIT/netconf/netconf`, `github.com/GabrielNunesIT/netconf/netconf/client`, `github.com/GabrielNunesIT/netconf/netconf/server`, `github.com/GabrielNunesIT/netconf/netconf/transport`, `github.com/GabrielNunesIT/netconf/netconf/transport/ssh`, `golang.org/x/crypto/ssh`, `github.com/stretchr/testify/assert`, `github.com/stretchr/testify/require`.
+1. **Create the file with package declaration and imports.** Package `conformance_test`. Import: `context`, `crypto/rand`, `crypto/rsa`, `encoding/xml`, `errors`, `net`, `testing`, `time`, `github.com/GabrielNunesIT/netconf`, `github.com/GabrielNunesIT/netconf/client`, `github.com/GabrielNunesIT/netconf/server`, `github.com/GabrielNunesIT/netconf/transport`, `github.com/GabrielNunesIT/netconf/transport/ssh`, `golang.org/x/crypto/ssh`, `github.com/stretchr/testify/assert`, `github.com/stretchr/testify/require`.
 
 2. **Write the `newLoopbackPair` helper** that takes `(t *testing.T, clientCaps, serverCaps netconf.CapabilitySet, sessionID uint32)` and returns `(*client.Client, *server.Server, *netconf.Session, chan error)`. It should:
    - Create a loopback transport pair via `transport.NewLoopback()`

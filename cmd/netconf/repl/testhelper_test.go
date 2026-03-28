@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	netconf "github.com/GabrielNunesIT/netconf/netconf"
-	"github.com/GabrielNunesIT/netconf/netconf/server"
-	ncssh "github.com/GabrielNunesIT/netconf/netconf/transport/ssh"
+	netconf "github.com/GabrielNunesIT/netconf"
+	"github.com/GabrielNunesIT/netconf/server"
+	ncssh "github.com/GabrielNunesIT/netconf/transport/ssh"
 	"github.com/stretchr/testify/require"
 	gossh "golang.org/x/crypto/ssh"
 )

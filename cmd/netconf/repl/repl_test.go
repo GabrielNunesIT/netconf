@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/GabrielNunesIT/netconf/netconf/client"
+	"github.com/GabrielNunesIT/netconf/client"
 	"github.com/stretchr/testify/assert"
 )
 

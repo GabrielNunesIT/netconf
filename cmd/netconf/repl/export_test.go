@@ -5,7 +5,7 @@ package repl
 import (
 	"io"
 
-	"github.com/GabrielNunesIT/netconf/netconf/client"
+	"github.com/GabrielNunesIT/netconf/client"
 	"github.com/chzyer/readline"
 )
 

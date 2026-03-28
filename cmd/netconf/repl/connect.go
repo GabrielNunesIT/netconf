@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	netconf "github.com/GabrielNunesIT/netconf/netconf"
-	"github.com/GabrielNunesIT/netconf/netconf/client"
+	netconf "github.com/GabrielNunesIT/netconf"
+	"github.com/GabrielNunesIT/netconf/client"
 	gossh "golang.org/x/crypto/ssh"
 
 	"github.com/chzyer/readline"

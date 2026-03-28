@@ -5,8 +5,8 @@ import (
 	"context"
 	"testing"
 
-	netconf "github.com/GabrielNunesIT/netconf/netconf"
-	"github.com/GabrielNunesIT/netconf/netconf/server"
+	netconf "github.com/GabrielNunesIT/netconf"
+	"github.com/GabrielNunesIT/netconf/server"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
