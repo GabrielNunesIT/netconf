@@ -173,3 +173,43 @@ func (l *Listener) handleConn(conn net.Conn) {
 		peerCerts: peerCerts,
 	}
 }
+
+// ─── Call Home (RFC 8071) ─────────────────────────────────────────────────────
+
+// DialCallHome dials addr (the NETCONF client's call-home listening address),
+// performs the TLS server handshake over the outbound TCP connection, and
+// returns a *ServerTransport ready for the NETCONF hello exchange.
+//
+// The caller is the NETCONF server. addr is the NETCONF client's call-home
+// listening address (RFC 8071 default port 4335). For tests, use any
+// available port obtained from net.Listen("tcp", "127.0.0.1:0").
+//
+// RFC 8071 inverts TCP direction: the NETCONF server initiates TCP to the
+// NETCONF client, but the TLS server/client roles are unchanged — the
+// NETCONF server still runs the TLS server protocol over the outbound
+// connection. config must include the server certificate; set ClientAuth and
+// ClientCAs for mutual authentication.
+func DialCallHome(addr string, config *cryptotls.Config) (*ServerTransport, error) {
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("tls server: call home: dial %s: %w", addr, err)
+	}
+
+	tlsConn := cryptotls.Server(conn, config)
+
+	// Explicit Handshake() before ConnectionState() — required to populate
+	// PeerCertificates (L010).
+	if err := tlsConn.Handshake(); err != nil {
+		_ = tlsConn.Close()
+		return nil, fmt.Errorf("tls server: call home: handshake: %w", err)
+	}
+
+	state := tlsConn.ConnectionState()
+	peerCerts := state.PeerCertificates // nil if no client cert
+
+	return &ServerTransport{
+		framer:    transport.NewFramer(tlsConn),
+		conn:      tlsConn,
+		peerCerts: peerCerts,
+	}, nil
+}
