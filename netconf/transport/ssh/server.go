@@ -215,3 +215,95 @@ func parseSubsystemName(payload []byte) string {
 	}
 	return string(payload[4 : 4+nameLen])
 }
+
+// ─── Call Home (RFC 8071) ─────────────────────────────────────────────────────
+
+// DialCallHome dials addr (the NETCONF client's call-home listening address),
+// performs the SSH server protocol over the outbound TCP connection, handles
+// the "netconf" subsystem, and returns a *ServerTransport ready for the
+// NETCONF hello exchange.
+//
+// The caller is the NETCONF server. addr is the NETCONF client's call-home
+// listening address (RFC 8071 default port 4334). For tests, use any
+// available port obtained from net.Listen("tcp", "127.0.0.1:0").
+//
+// RFC 8071 inverts TCP direction: the NETCONF server initiates TCP to the
+// NETCONF client, but the SSH server/client roles are unchanged — the
+// NETCONF server still runs the SSH server protocol over the outbound
+// connection.
+func DialCallHome(addr string, config *gossh.ServerConfig) (*ServerTransport, error) {
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("ssh server: call home: dial %s: %w", addr, err)
+	}
+	return callHomeHandshake(conn, config)
+}
+
+// callHomeHandshake performs the SSH server protocol over an already-dialed
+// conn, negotiates the "netconf" subsystem, and returns the ServerTransport.
+// It is separated from DialCallHome so tests can supply a pre-dialed conn.
+func callHomeHandshake(conn net.Conn, config *gossh.ServerConfig) (*ServerTransport, error) {
+	sshConn, chans, reqs, err := gossh.NewServerConn(conn, config)
+	if err != nil {
+		return nil, fmt.Errorf("ssh server: call home: handshake: %w", err)
+	}
+
+	// Discard global requests (keep-alives, etc.).
+	go gossh.DiscardRequests(reqs)
+
+	// Wait for the client to open a "session" channel and request the
+	// "netconf" subsystem. Any non-session channel is rejected.
+	for newChan := range chans {
+		if newChan.ChannelType() != "session" {
+			_ = newChan.Reject(gossh.UnknownChannelType,
+				fmt.Sprintf("ssh server: call home: unsupported channel type %q", newChan.ChannelType()))
+			continue
+		}
+		channel, requests, err := newChan.Accept()
+		if err != nil {
+			_ = sshConn.Close()
+			return nil, fmt.Errorf("ssh server: call home: accept session channel: %w", err)
+		}
+
+		// Process requests on this session channel until "netconf" subsystem is granted.
+		for req := range requests {
+			if req.Type != "subsystem" {
+				if req.WantReply {
+					_ = req.Reply(false, nil)
+				}
+				continue
+			}
+			name := parseSubsystemName(req.Payload)
+			if name != "netconf" {
+				if req.WantReply {
+					_ = req.Reply(false, nil)
+				}
+				_ = channel.Close()
+				_ = sshConn.Close()
+				return nil, fmt.Errorf("ssh server: call home: unexpected subsystem %q (want netconf)", name)
+			}
+			if req.WantReply {
+				_ = req.Reply(true, nil)
+			}
+			// Drain remaining requests so the SSH multiplexer does not stall.
+			go func() {
+				for r := range requests {
+					if r.WantReply {
+						_ = r.Reply(false, nil)
+					}
+				}
+			}()
+			return &ServerTransport{
+				framer:  transport.NewFramer(channel),
+				channel: channel,
+			}, nil
+		}
+
+		// requests channel closed without a netconf subsystem request.
+		_ = sshConn.Close()
+		return nil, fmt.Errorf("ssh server: call home: session closed before netconf subsystem")
+	}
+
+	// chans channel closed without a session channel.
+	return nil, fmt.Errorf("ssh server: call home: connection closed before session channel")
+}

@@ -60,6 +60,16 @@ func Dial(addr string, config *gossh.ClientConfig) (*Transport, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ssh client: dial %s: %w", addr, err)
 	}
+	return DialConn(conn, addr, config)
+}
+
+// DialConn performs the SSH handshake over an already-established conn,
+// requests a "netconf" subsystem channel, and returns the resulting transport.
+//
+// addr is used only in error messages; it does not need to match the actual
+// remote address. This function is useful for call home (RFC 8071), where the
+// transport layer provides a pre-accepted net.Conn rather than dialing TCP.
+func DialConn(conn net.Conn, addr string, config *gossh.ClientConfig) (*Transport, error) {
 	return handshakeAndOpenSubsystem(conn, addr, config)
 }
 
