@@ -53,6 +53,8 @@ import (
 
 	netconf "github.com/GabrielNunesIT/netconf/netconf"
 	"github.com/GabrielNunesIT/netconf/netconf/monitoring"
+	"github.com/GabrielNunesIT/netconf/netconf/nmda"
+	"github.com/GabrielNunesIT/netconf/netconf/subscriptions"
 	nctls "github.com/GabrielNunesIT/netconf/netconf/transport/tls"
 	ncssh "github.com/GabrielNunesIT/netconf/netconf/transport/ssh"
 	gossh "golang.org/x/crypto/ssh"
@@ -274,6 +276,18 @@ func (c *Client) Err() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.dispatchErr
+}
+
+// RemoteCapabilities returns the capability URIs advertised by the remote peer
+// in the NETCONF hello exchange.
+func (c *Client) RemoteCapabilities() netconf.CapabilitySet {
+	return c.sess.RemoteCapabilities()
+}
+
+// SessionID returns the server-assigned NETCONF session identifier from the
+// hello exchange.
+func (c *Client) SessionID() uint32 {
+	return c.sess.SessionID()
 }
 
 // Notifications returns the read-only channel on which the dispatcher delivers
@@ -548,6 +562,136 @@ func (c *Client) GetSchema(ctx context.Context, req *monitoring.GetSchemaRequest
 		return nil, fmt.Errorf("client: GetSchema: decode GetSchemaReply: %w", err)
 	}
 	return gsr.Content, nil
+}
+
+// ── RFC 8526 NMDA operations ──────────────────────────────────────────────────
+
+// GetData retrieves data from any NMDA datastore (RFC 8526 §3.1).
+//
+// Unlike GetConfig (which only accesses the running datastore), GetData can
+// retrieve data from any NMDA datastore including operational, intended, etc.
+//
+// # Observability Impact
+//
+// Errors include "client: GetData:" prefix per P010. A server-side
+// <rpc-error> propagates as netconf.RPCError via errors.As. A reply body
+// decode failure surfaces as a wrapped "decode DataReply" error.
+func (c *Client) GetData(ctx context.Context, req nmda.GetData) (*netconf.DataReply, error) {
+	reply, err := c.Do(ctx, &req)
+	if err != nil {
+		return nil, fmt.Errorf("client: GetData: %w", err)
+	}
+	dr, err := checkDataReply(reply)
+	if err != nil {
+		return nil, fmt.Errorf("client: GetData: %w", err)
+	}
+	return dr, nil
+}
+
+// EditData applies configuration changes to a writable NMDA datastore
+// (RFC 8526 §3.2).
+//
+// # Observability Impact
+//
+// Errors include "client: EditData:" prefix per P010.
+func (c *Client) EditData(ctx context.Context, req nmda.EditData) error {
+	reply, err := c.Do(ctx, &req)
+	if err != nil {
+		return fmt.Errorf("client: EditData: %w", err)
+	}
+	if err := checkReply(reply); err != nil {
+		return fmt.Errorf("client: EditData: %w", err)
+	}
+	return nil
+}
+
+// ── RFC 8639 subscribed notifications ────────────────────────────────────────
+
+// EstablishSubscription sends an establish-subscription RPC (RFC 8639 §2.4.1)
+// and returns the server-assigned subscription ID and the notification channel.
+//
+// The notification channel is the same as Notifications() — it is created at
+// Client construction time and delivers all RFC 5277 <notification> messages,
+// including subscription lifecycle notifications (subscription-started,
+// subscription-modified, subscription-terminated, subscription-killed).
+//
+// On success, the server reply is decoded to extract the subscription ID.
+// Callers should read from the returned channel to receive subscription events.
+//
+// # Observability Impact
+//
+// Errors include "client: EstablishSubscription:" prefix. A server-side
+// <rpc-error> propagates as netconf.RPCError via errors.As. A reply body
+// decode failure surfaces as a wrapped "decode EstablishSubscriptionReply"
+// error.
+func (c *Client) EstablishSubscription(ctx context.Context, req subscriptions.EstablishSubscriptionRequest) (subscriptions.SubscriptionID, <-chan *netconf.Notification, error) {
+	reply, err := c.Do(ctx, &req)
+	if err != nil {
+		return 0, nil, fmt.Errorf("client: EstablishSubscription: %w", err)
+	}
+	if err := checkReply(reply); err != nil {
+		return 0, nil, fmt.Errorf("client: EstablishSubscription: %w", err)
+	}
+	var esr subscriptions.EstablishSubscriptionReply
+	if err := xml.Unmarshal(reply.Body, &esr); err != nil {
+		return 0, nil, fmt.Errorf("client: EstablishSubscription: decode EstablishSubscriptionReply: %w", err)
+	}
+	return esr.ID, c.notifCh, nil
+}
+
+// ModifySubscription sends a modify-subscription RPC (RFC 8639 §2.4.2).
+// It changes parameters (filter, stop-time) of an existing subscription.
+//
+// # Observability Impact
+//
+// Errors include "client: ModifySubscription:" prefix per P010.
+func (c *Client) ModifySubscription(ctx context.Context, req subscriptions.ModifySubscriptionRequest) error {
+	reply, err := c.Do(ctx, &req)
+	if err != nil {
+		return fmt.Errorf("client: ModifySubscription: %w", err)
+	}
+	if err := checkReply(reply); err != nil {
+		return fmt.Errorf("client: ModifySubscription: %w", err)
+	}
+	return nil
+}
+
+// DeleteSubscription sends a delete-subscription RPC (RFC 8639 §2.4.3).
+// It gracefully terminates a subscription owned by this session.
+//
+// # Observability Impact
+//
+// Errors include "client: DeleteSubscription:" prefix per P010.
+func (c *Client) DeleteSubscription(ctx context.Context, id subscriptions.SubscriptionID) error {
+	reply, err := c.Do(ctx, &subscriptions.DeleteSubscription{ID: id})
+	if err != nil {
+		return fmt.Errorf("client: DeleteSubscription: %w", err)
+	}
+	if err := checkReply(reply); err != nil {
+		return fmt.Errorf("client: DeleteSubscription: %w", err)
+	}
+	return nil
+}
+
+// KillSubscription sends a kill-subscription RPC (RFC 8639 §2.4.4).
+// It forcibly terminates any subscription regardless of ownership. Typically
+// used by administrators.
+//
+// reason is an optional human-readable reason for the termination; pass ""
+// to omit it.
+//
+// # Observability Impact
+//
+// Errors include "client: KillSubscription:" prefix per P010.
+func (c *Client) KillSubscription(ctx context.Context, id subscriptions.SubscriptionID, reason string) error {
+	reply, err := c.Do(ctx, &subscriptions.KillSubscription{ID: id, Reason: reason})
+	if err != nil {
+		return fmt.Errorf("client: KillSubscription: %w", err)
+	}
+	if err := checkReply(reply); err != nil {
+		return fmt.Errorf("client: KillSubscription: %w", err)
+	}
+	return nil
 }
 
 // DiscardChanges reverts the candidate to the running configuration (RFC 6241 §8.3.4).

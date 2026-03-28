@@ -3,6 +3,7 @@ module github.com/GabrielNunesIT/netconf
 go 1.26
 
 require (
+	github.com/chzyer/readline v1.5.1
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/crypto v0.49.0
 )

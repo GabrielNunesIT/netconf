@@ -32,6 +32,7 @@ package conformance_test
 
 import (
 	"bytes"
+	"encoding/xml"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -57,6 +58,11 @@ import (
 	"github.com/GabrielNunesIT/netconf/netconf/transport"
 	ncssh "github.com/GabrielNunesIT/netconf/netconf/transport/ssh"
 	nctls "github.com/GabrielNunesIT/netconf/netconf/transport/tls"
+	"github.com/GabrielNunesIT/netconf/netconf/nacm"
+	"github.com/GabrielNunesIT/netconf/netconf/nmda"
+	"github.com/GabrielNunesIT/netconf/netconf/subscriptions"
+	"github.com/GabrielNunesIT/netconf/netconf/yanglibrary"
+	"github.com/GabrielNunesIT/netconf/netconf/yangpush"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	gossh "golang.org/x/crypto/ssh"
@@ -1591,5 +1597,415 @@ func TestConformance_CapabilityAdvertisement(t *testing.T) {
 		"client must see CapabilityWithDefaults in RemoteCapabilities")
 	assert.True(t, remoteCaps.Contains(netconf.CapabilityPartialLock),
 		"client must see CapabilityPartialLock in RemoteCapabilities")
+}
+
+// ── TestConformance_M003_CapabilityAdvertisement ──────────────────────────────
+
+// TestConformance_M003_CapabilityAdvertisement proves that all M003 YANG module
+// namespace URIs (subscriptions, nmda, yanglibrary, yangpush, nacm) are visible
+// in the client's RemoteCapabilities after a hello exchange.
+func TestConformance_M003_CapabilityAdvertisement(t *testing.T) {
+	serverCaps := netconf.NewCapabilitySet([]string{
+		netconf.BaseCap10,
+		subscriptions.CapabilityURI,
+		subscriptions.CapabilityURINetconf,
+		nmda.CapabilityURI,
+		yanglibrary.CapabilityURI,
+		yangpush.CapabilityURI,
+		nacm.CapabilityURI,
+	})
+	clientCaps := netconf.NewCapabilitySet([]string{netconf.BaseCap10})
+
+	clientT, serverT := transport.NewLoopback()
+	t.Cleanup(func() {
+		clientT.Close()
+		serverT.Close()
+	})
+
+	type sessResult struct {
+		sess *netconf.Session
+		err  error
+	}
+	cliCh := make(chan sessResult, 1)
+	srvCh := make(chan sessResult, 1)
+
+	go func() {
+		s, err := netconf.ClientSession(clientT, clientCaps)
+		cliCh <- sessResult{s, err}
+	}()
+	go func() {
+		s, err := netconf.ServerSession(serverT, serverCaps, 500)
+		srvCh <- sessResult{s, err}
+	}()
+
+	cliRes := <-cliCh
+	srvRes := <-srvCh
+	require.NoError(t, cliRes.err, "ClientSession must succeed")
+	require.NoError(t, srvRes.err, "ServerSession must succeed")
+
+	remoteCaps := cliRes.sess.RemoteCapabilities()
+
+	assert.True(t, remoteCaps.Contains(subscriptions.CapabilityURI),
+		"client must see subscriptions CapabilityURI")
+	assert.True(t, remoteCaps.Contains(subscriptions.CapabilityURINetconf),
+		"client must see subscriptions CapabilityURINetconf")
+	assert.True(t, remoteCaps.Contains(nmda.CapabilityURI),
+		"client must see nmda CapabilityURI")
+	assert.True(t, remoteCaps.Contains(yanglibrary.CapabilityURI),
+		"client must see yanglibrary CapabilityURI")
+	assert.True(t, remoteCaps.Contains(yangpush.CapabilityURI),
+		"client must see yangpush CapabilityURI")
+	assert.True(t, remoteCaps.Contains(nacm.CapabilityURI),
+		"client must see nacm CapabilityURI")
+}
+
+// ── TestConformance_NMDA_GetData ──────────────────────────────────────────────
+
+// TestConformance_NMDA_GetData proves get-data RPC delivery and DataReply decoding.
+func TestConformance_NMDA_GetData(t *testing.T) {
+	nmdaCapSet := netconf.NewCapabilitySet([]string{
+		netconf.BaseCap10,
+		nmda.CapabilityURI,
+	})
+	p := newLoopbackPair(t, nmdaCapSet, nmdaCapSet, 501)
+
+	var mu sync.Mutex
+	var capturedBody []byte
+
+	const opState = `<op-state xmlns="urn:example:test"><running>true</running></op-state>`
+	p.srv.RegisterHandler("get-data", server.HandlerFunc(
+		func(_ context.Context, _ *netconf.Session, rpc *netconf.RPC) ([]byte, error) {
+			mu.Lock()
+			capturedBody = make([]byte, len(rpc.Body))
+			copy(capturedBody, rpc.Body)
+			mu.Unlock()
+			return []byte(`<data xmlns="urn:ietf:params:xml:ns:netconf:base:1.0">` + opState + `</data>`), nil
+		},
+	))
+
+	ctx := context.Background()
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- p.srv.Serve(ctx, p.serverSess)
+	}()
+
+	dr, err := p.cli.GetData(ctx, nmda.GetData{
+		Datastore: nmda.DatastoreRef{Name: nmda.DatastoreOperational},
+	})
+	require.NoError(t, err, "GetData must succeed")
+	require.NotNil(t, dr, "GetData must return a DataReply")
+	assert.Contains(t, string(dr.Content), "op-state",
+		"DataReply content must contain the handler-supplied data")
+
+	mu.Lock()
+	body := capturedBody
+	mu.Unlock()
+	require.NotEmpty(t, body, "handler must have captured the RPC body")
+	bodyStr := string(body)
+	assert.Contains(t, bodyStr, nmda.NmdaNS, "RPC body must carry NMDA namespace")
+	assert.Contains(t, bodyStr, nmda.DatastoreOperational, "RPC body must specify operational datastore")
+
+	require.NoError(t, p.cli.CloseSession(ctx))
+	waitServe(t, serveDone)
+}
+
+// ── TestConformance_NACM_Enforcement ─────────────────────────────────────────
+
+// nacmRPCLocalName extracts the XML local name of the first start element in b.
+func nacmRPCLocalName(b []byte) string {
+	xd := xml.NewDecoder(bytes.NewReader(b))
+	for {
+		tok, err := xd.Token()
+		if err != nil {
+			return ""
+		}
+		if se, ok := tok.(xml.StartElement); ok {
+			return se.Name.Local
+		}
+	}
+}
+
+// nacmGuard wraps a server.Handler with NACM enforcement using nacm.Enforce.
+// user and groups are passed explicitly since netconf.Session has no auth identity.
+func nacmGuard(cfg nacm.Nacm, user string, groups []string, inner server.Handler) server.Handler {
+	return server.HandlerFunc(func(ctx context.Context, sess *netconf.Session, rpc *netconf.RPC) ([]byte, error) {
+		opName := nacmRPCLocalName(rpc.Body)
+		req := nacm.Request{
+			User:          user,
+			Groups:        groups,
+			OperationType: nacm.OpProtocolOperation,
+			OperationName: opName,
+			ModuleName:    "*",
+		}
+		switch nacm.Enforce(cfg, req) {
+		case nacm.Permit:
+			return inner.Handle(ctx, sess, rpc)
+		default: // Deny or DefaultDeny
+			return nil, netconf.RPCError{
+				Type:     "protocol",
+				Tag:      "access-denied",
+				Severity: "error",
+				Message:  "NACM access denied",
+			}
+		}
+	})
+}
+
+// TestConformance_NACM_Enforcement proves the nacmGuard middleware pattern:
+//  1. Get with 'admin' group → Permit (rule allows).
+//  2. EditConfig with 'admin' group → Deny (rule denies).
+//  3. GetConfig with 'admin' group → DefaultDeny (no matching rule).
+func TestConformance_NACM_Enforcement(t *testing.T) {
+	p := newLoopbackPair(t, caps10, caps10, 502)
+
+	cfg := nacm.Nacm{
+		EnableNacm: true,
+		RuleLists: []nacm.RuleList{
+			{
+				Name:  "admin-rules",
+				Group: []string{"admin"},
+				Rules: []nacm.Rule{
+					{
+						Name:              "allow-get",
+						ModuleName:        "*",
+						ProtocolOperation: &nacm.ProtocolOperationRule{RPCName: "get"},
+						AccessOperations:  "exec",
+						Action:            nacm.ActionPermit,
+					},
+					{
+						Name:              "deny-edit-config",
+						ModuleName:        "*",
+						ProtocolOperation: &nacm.ProtocolOperationRule{RPCName: "edit-config"},
+						AccessOperations:  "exec",
+						Action:            nacm.ActionDeny,
+					},
+				},
+			},
+		},
+	}
+
+	p.srv.RegisterHandler("get", nacmGuard(cfg, "alice", []string{"admin"}, server.HandlerFunc(
+		func(_ context.Context, _ *netconf.Session, _ *netconf.RPC) ([]byte, error) {
+			return []byte(dataBody), nil
+		},
+	)))
+	p.srv.RegisterHandler("edit-config", nacmGuard(cfg, "alice", []string{"admin"}, server.HandlerFunc(
+		func(_ context.Context, _ *netconf.Session, _ *netconf.RPC) ([]byte, error) {
+			return nil, nil
+		},
+	)))
+	p.srv.RegisterHandler("get-config", nacmGuard(cfg, "alice", []string{"admin"}, server.HandlerFunc(
+		func(_ context.Context, _ *netconf.Session, _ *netconf.RPC) ([]byte, error) {
+			return []byte(dataBody), nil
+		},
+	)))
+
+	ctx := context.Background()
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- p.srv.Serve(ctx, p.serverSess)
+	}()
+
+	// Test 1: Get → Permit.
+	dr, err := p.cli.Get(ctx, nil)
+	require.NoError(t, err, "Get must succeed with admin group (NACM permit)")
+	require.NotNil(t, dr, "Get must return a DataReply")
+
+	// Test 2: EditConfig → Deny.
+	editErr := p.cli.EditConfig(ctx, netconf.EditConfig{
+		Target: netconf.Datastore{Running: &struct{}{}},
+		Config: []byte(`<config/>`),
+	})
+	require.Error(t, editErr, "EditConfig must fail with NACM deny")
+	var rpcErr netconf.RPCError
+	require.ErrorAs(t, editErr, &rpcErr, "error must be an RPCError")
+	assert.Equal(t, "access-denied", rpcErr.Tag, "RPCError tag must be access-denied")
+
+	// Test 3: GetConfig → DefaultDeny (no matching rule for get-config).
+	_, gcErr := p.cli.GetConfig(ctx, netconf.Datastore{Running: &struct{}{}}, nil)
+	require.Error(t, gcErr, "GetConfig must fail with NACM default-deny")
+	var rpcErr2 netconf.RPCError
+	require.ErrorAs(t, gcErr, &rpcErr2, "error must be an RPCError")
+	assert.Equal(t, "access-denied", rpcErr2.Tag, "DefaultDeny RPCError tag must be access-denied")
+
+	require.NoError(t, p.cli.CloseSession(ctx))
+	waitServe(t, serveDone)
+}
+
+// ── TestConformance_Subscriptions_CallHome_TLS ────────────────────────────────
+
+// TestConformance_Subscriptions_CallHome_TLS proves subscriptions over TLS call-home:
+//  1. Server dials TLS call-home to a client listener.
+//  2. Client accepts, NETCONF hello with subscription capabilities.
+//  3. EstablishSubscription → server returns id=1.
+//  4. Server sends PushUpdate notification.
+//  5. Client receives the notification on notifCh.
+func TestConformance_Subscriptions_CallHome_TLS(t *testing.T) {
+	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err, "generate CA key")
+	caTemplate := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "test-ca"},
+		NotBefore:             time.Now().Add(-time.Minute),
+		NotAfter:              time.Now().Add(time.Hour),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+	}
+	caCertDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caKey.PublicKey, caKey)
+	require.NoError(t, err)
+	caCert, err := x509.ParseCertificate(caCertDER)
+	require.NoError(t, err)
+
+	makeLeafCert := func(cn string) (cryptotls.Certificate, error) {
+		leafKey, kErr := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if kErr != nil {
+			return cryptotls.Certificate{}, kErr
+		}
+		leafTemplate := &x509.Certificate{
+			SerialNumber: big.NewInt(2),
+			Subject:      pkix.Name{CommonName: cn},
+			NotBefore:    time.Now().Add(-time.Minute),
+			NotAfter:     time.Now().Add(time.Hour),
+			KeyUsage:     x509.KeyUsageDigitalSignature,
+			ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
+			DNSNames:     []string{"localhost"},
+			IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
+		}
+		der, cErr := x509.CreateCertificate(rand.Reader, leafTemplate, caCert, &leafKey.PublicKey, caKey)
+		if cErr != nil {
+			return cryptotls.Certificate{}, cErr
+		}
+		certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+		keyDER, mErr := x509.MarshalECPrivateKey(leafKey)
+		if mErr != nil {
+			return cryptotls.Certificate{}, mErr
+		}
+		keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+		return cryptotls.X509KeyPair(certPEM, keyPEM)
+	}
+
+	serverCert, err := makeLeafCert("test-server")
+	require.NoError(t, err)
+	clientCert, err := makeLeafCert("test-client")
+	require.NoError(t, err)
+
+	caPool := x509.NewCertPool()
+	caPool.AddCert(caCert)
+
+	serverTLSConfig := &cryptotls.Config{
+		// The NETCONF server acts as TLS server in call-home (accepts TLS from client).
+		Certificates: []cryptotls.Certificate{serverCert},
+		ClientCAs:    caPool,
+		ClientAuth:   cryptotls.RequireAndVerifyClientCert,
+	}
+	clientTLSConfig := &cryptotls.Config{
+		// The NETCONF client acts as TLS client in call-home (initiates TLS to server).
+		Certificates: []cryptotls.Certificate{clientCert},
+		RootCAs:      caPool,
+		ServerName:   "localhost",
+	}
+
+	chSubCaps := netconf.NewCapabilitySet([]string{
+		netconf.BaseCap10,
+		netconf.CapabilityNotification,
+		netconf.CapabilityInterleave,
+		subscriptions.CapabilityURI,
+	})
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { ln.Close() })
+
+	serverErrCh := make(chan error, 1)
+	var serverSess *netconf.Session
+	var serverSessMu sync.Mutex
+
+	go func() {
+		trp, dialErr := nctls.DialCallHome(ln.Addr().String(), serverTLSConfig)
+		if dialErr != nil {
+			serverErrCh <- dialErr
+			return
+		}
+		sess, sessErr := netconf.ServerSession(trp, chSubCaps, 503)
+		if sessErr != nil {
+			serverErrCh <- sessErr
+			return
+		}
+		serverSessMu.Lock()
+		serverSess = sess
+		serverSessMu.Unlock()
+		serverErrCh <- nil
+	}()
+
+	cli, err := client.AcceptCallHomeTLS(context.Background(), ln, clientTLSConfig, chSubCaps)
+	require.NoError(t, err, "AcceptCallHomeTLS must succeed")
+	defer func() { _ = cli.Close() }()
+
+	require.NoError(t, <-serverErrCh, "server-side TLS call home must succeed")
+
+	srv := server.NewServer()
+	subscribedCh := make(chan struct{})
+
+	srv.RegisterHandler("establish-subscription", server.HandlerFunc(
+		func(_ context.Context, _ *netconf.Session, _ *netconf.RPC) ([]byte, error) {
+			close(subscribedCh)
+			b, mErr := xml.Marshal(subscriptions.EstablishSubscriptionReply{ID: 1})
+			if mErr != nil {
+				return nil, mErr
+			}
+			return b, nil
+		},
+	))
+
+	ctx := context.Background()
+	serveDone := make(chan error, 1)
+	serverSessMu.Lock()
+	ss := serverSess
+	serverSessMu.Unlock()
+	go func() {
+		serveDone <- srv.Serve(ctx, ss)
+	}()
+
+	id, notifCh, err := cli.EstablishSubscription(ctx, subscriptions.EstablishSubscriptionRequest{
+		Stream: "NETCONF",
+	})
+	require.NoError(t, err, "EstablishSubscription over TLS call-home must succeed")
+	assert.Equal(t, subscriptions.SubscriptionID(1), id)
+
+	select {
+	case <-subscribedCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("establish-subscription handler did not signal within 2s")
+	}
+
+	// Send PushUpdate notification — Serve is blocked in Recv(), no race.
+	pushBody, mErr := xml.Marshal(yangpush.PushUpdate{
+		ID:              1,
+		ObservationTime: "2026-01-01T00:00:00Z",
+		Datastore:       nmda.DatastoreOperational,
+		Updates:         []byte(`<data xmlns="urn:example:test"><value>42</value></data>`),
+	})
+	require.NoError(t, mErr)
+
+	serverSessMu.Lock()
+	sendErr := server.SendNotification(serverSess, &netconf.Notification{
+		EventTime: "2026-01-01T00:00:00Z",
+		Body:      pushBody,
+	})
+	serverSessMu.Unlock()
+	require.NoError(t, sendErr, "SendNotification over TLS call-home must succeed")
+
+	select {
+	case received, open := <-notifCh:
+		require.True(t, open, "notification channel must be open")
+		assert.Contains(t, string(received.Body), "push-update",
+			"notification body must contain push-update from yangpush")
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for push-update notification over TLS call-home")
+	}
+
+	require.NoError(t, cli.CloseSession(ctx))
+	waitServe(t, serveDone)
 }
 
