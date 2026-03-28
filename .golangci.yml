@@ -1,0 +1,23 @@
+version: "2"
+
+linters:
+  enable:
+    - modernize
+    - staticcheck
+    - errcheck
+    - unused
+
+  exclusions:
+    rules:
+      # Ignore errcheck for all calls in test files.
+      # Deferred Close in tests is best-effort cleanup; checking the error
+      # adds noise without value.
+      - path: "_test\\.go"
+        linters:
+          - errcheck
+      # fmt.Fprintf to a REPL error/output writer — write failures are
+      # unrecoverable in an interactive REPL context.
+      - path: "cmd/netconf/repl/.*\\.go"
+        linters:
+          - errcheck
+        text: "fmt\\.Fprintf"

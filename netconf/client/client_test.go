@@ -329,7 +329,7 @@ func TestDo_MessageIDMonotonicallyIncreases(t *testing.T) {
 
 	// Issue n sequential RPCs; each call blocks until the server replies.
 	go func() {
-		for i := 0; i < n; i++ {
+		for range n {
 			raw, err := transport.ReadMsg(serverT)
 			if err != nil {
 				errCh <- err
@@ -348,7 +348,7 @@ func TestDo_MessageIDMonotonicallyIncreases(t *testing.T) {
 	}()
 
 	ids := make([]string, 0, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		_, err := c.Do(context.Background(), netconf.CloseSession{})
 		require.NoError(t, err, "Do %d must succeed", i+1)
 		ids = append(ids, <-idCh)
@@ -424,61 +424,6 @@ func testSSHConfigs(t *testing.T) (*gossh.ServerConfig, *gossh.ClientConfig) {
 		Timeout:         5 * time.Second,
 	}
 	return serverCfg, clientCfg
-}
-
-// newSSHTestPair builds a full SSH loopback stack and returns a ready Client
-// (client side), the server-side *netconf.Session, and a cleanup func.
-//
-// Stack: net.Listen on random port → ncssh.NewListener → ncssh.Dial →
-// netconf.ServerSession / ClientSession → client.NewClient.
-//
-// Server session runs in a goroutine; the caller uses serverSess to hand-
-// craft replies (or simply discards it and lets echoServer drive the session).
-func newSSHTestPair(t *testing.T) (c *client.Client, serverSess *netconf.Session, cleanup func()) {
-	t.Helper()
-
-	serverCfg, clientCfg := testSSHConfigs(t)
-
-	nl, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err, "listen on loopback")
-
-	caps := netconf.NewCapabilitySet([]string{netconf.BaseCap10, netconf.BaseCap11})
-	listener := ncssh.NewListener(nl, serverCfg)
-
-	type srvResult struct {
-		sess *netconf.Session
-		trp  *ncssh.ServerTransport
-		err  error
-	}
-	srvCh := make(chan srvResult, 1)
-	go func() {
-		trp, err := listener.Accept()
-		if err != nil {
-			srvCh <- srvResult{err: err}
-			return
-		}
-		sess, err := netconf.ServerSession(trp, caps, 1)
-		srvCh <- srvResult{sess: sess, trp: trp, err: err}
-	}()
-
-	addr := nl.Addr().String()
-	clientTrp, err := ncssh.Dial(addr, clientCfg)
-	require.NoError(t, err, "Dial SSH")
-
-	clientSess, err := netconf.ClientSession(clientTrp, caps)
-	require.NoError(t, err, "ClientSession")
-
-	sr := <-srvCh
-	require.NoError(t, sr.err, "ServerSession")
-
-	c = client.NewClient(clientSess)
-
-	cleanup = func() {
-		c.Close()
-		sr.trp.Close()
-		listener.Close()
-	}
-	return c, sr.sess, cleanup
 }
 
 // ── Echo-server helpers ───────────────────────────────────────────────────────
@@ -829,15 +774,6 @@ func TestClient_SSHLoopback(t *testing.T) {
 
 // ── Notification tests ────────────────────────────────────────────────────────
 
-// writeNotification marshals a netconf.Notification and writes it as a single
-// NETCONF message on the given transport.
-func writeNotification(t *testing.T, trp transport.Transport, notif *netconf.Notification) {
-	t.Helper()
-	data, err := xml.Marshal(notif)
-	require.NoError(t, err, "marshal Notification")
-	require.NoError(t, transport.WriteMsg(trp, data), "write notification to transport")
-}
-
 // TestClient_Notifications_ChannelExists verifies that Notifications() returns
 // a non-nil receive-only channel immediately after NewClient.
 func TestClient_Notifications_ChannelExists(t *testing.T) {
@@ -845,7 +781,7 @@ func TestClient_Notifications_ChannelExists(t *testing.T) {
 	ch := c.Notifications()
 	require.NotNil(t, ch, "Notifications() must return a non-nil channel")
 	// The returned type is <-chan *netconf.Notification — verify by assignment.
-	var _ <-chan *netconf.Notification = ch
+	_ = ch
 }
 
 // TestClient_Subscribe_Success verifies that Subscribe sends a create-subscription

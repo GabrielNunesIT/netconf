@@ -606,7 +606,6 @@ func allOperationCases() []opCase {
 func runOperationTable(t *testing.T, ctx context.Context, p *loopbackPair, cases []opCase) {
 	t.Helper()
 	for _, tc := range cases {
-		tc := tc
 		if tc.name == "close-session" {
 			continue // handled explicitly by the caller
 		}
@@ -618,7 +617,6 @@ func runOperationTable(t *testing.T, ctx context.Context, p *loopbackPair, cases
 	serveDone := p.startServe(ctx)
 
 	for _, tc := range cases {
-		tc := tc
 		if tc.name == "close-session" {
 			continue
 		}
@@ -843,7 +841,6 @@ func TestConformance_FramingAutoNegotiation(t *testing.T) {
 	}
 
 	for _, sc := range scenarios {
-		sc := sc
 		t.Run(sc.name, func(t *testing.T) {
 			clientT, serverT := transport.NewLoopback()
 			t.Cleanup(func() {
@@ -1026,7 +1023,7 @@ func TestConformance_MessageIDMonotonicity(t *testing.T) {
 	serveDone := p.startServe(ctx)
 
 	running := netconf.Datastore{Running: &struct{}{}}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		dr, err := p.cli.GetConfig(ctx, running, nil)
 		require.NoError(t, err, "GetConfig %d must succeed", i+1)
 		require.NotNil(t, dr, "GetConfig %d must return DataReply", i+1)
@@ -1138,7 +1135,6 @@ func TestConformance_ConcurrentOperations(t *testing.T) {
 		{"eom", caps10},
 		{"chunked", caps11},
 	} {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			p := newLoopbackPair(t, tc.caps, tc.caps, 60)
 			ctx := context.Background()
@@ -1153,7 +1149,7 @@ func TestConformance_ConcurrentOperations(t *testing.T) {
 			const workers = 5
 			errCh := make(chan error, workers)
 			running := netconf.Datastore{Running: &struct{}{}}
-			for i := 0; i < workers; i++ {
+			for range workers {
 				go func() {
 					dr, err := p.cli.GetConfig(ctx, running, nil)
 					if err != nil {
@@ -1167,7 +1163,7 @@ func TestConformance_ConcurrentOperations(t *testing.T) {
 					errCh <- nil
 				}()
 			}
-			for i := 0; i < workers; i++ {
+			for range workers {
 				require.NoError(t, <-errCh, "concurrent GetConfig worker must succeed")
 			}
 
@@ -1492,7 +1488,7 @@ func TestConformance_NotificationsOverTLS(t *testing.T) {
 	for i := range numNotifs {
 		n := &netconf.Notification{
 			EventTime: fmt.Sprintf("2026-03-01T00:00:0%dZ", i),
-			Body:      []byte(fmt.Sprintf(`<tls-event seq="%d"/>`, i)),
+			Body:      fmt.Appendf(nil, `<tls-event seq="%d"/>`, i),
 		}
 		require.NoError(t, server.SendNotification(p.serverSess, n),
 			"SendNotification %d must succeed over TLS", i)

@@ -44,7 +44,11 @@ func Run(version string) error {
 	if err != nil {
 		return fmt.Errorf("readline init: %w", err)
 	}
-	defer rl.Close()
+	defer func() {
+		if closeErr := rl.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "readline close: %v\n", closeErr)
+		}
+	}()
 
 	// Route all log/fmt output through readline's stderr so it doesn't corrupt
 	// the prompt during async writes.

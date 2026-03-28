@@ -1,6 +1,9 @@
 package nacm
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // Decision is the result of an NACM enforcement evaluation.
 // It indicates whether the requested access is permitted, denied by a
@@ -131,10 +134,8 @@ func groupApplies(ruleGroups []string, userGroups []string) bool {
 		return true
 	}
 	for _, rg := range ruleGroups {
-		for _, ug := range userGroups {
-			if rg == ug {
-				return true
-			}
+		if slices.Contains(userGroups, rg) {
+			return true
 		}
 	}
 	return false
@@ -205,7 +206,7 @@ func accessOperationMatches(ruleAccess string, opType OperationType) bool {
 	}
 
 	// The access-operations value is space-separated.
-	for _, op := range strings.Fields(ruleAccess) {
+	for op := range strings.FieldsSeq(ruleAccess) {
 		if op == "*" || op == required {
 			return true
 		}

@@ -212,7 +212,7 @@ func recvHello(trp transport.Transport) (*Hello, error) {
 	if err != nil {
 		return nil, fmt.Errorf("MsgReader: %w", err)
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 
 	data, err := io.ReadAll(r)
 	if err != nil {

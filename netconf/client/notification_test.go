@@ -132,7 +132,7 @@ func TestClient_NotificationInterleave(t *testing.T) {
 	for i := range numNotifs {
 		n := &netconf.Notification{
 			EventTime: fmt.Sprintf("2026-01-01T00:00:0%dZ", i),
-			Body:      []byte(fmt.Sprintf(`<test-event seq="%d"/>`, i)),
+			Body:      fmt.Appendf(nil, `<test-event seq="%d"/>`, i),
 		}
 		require.NoError(t, server.SendNotification(serverSess, n),
 			"SendNotification %d must succeed", i)

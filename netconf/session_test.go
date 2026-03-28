@@ -19,24 +19,6 @@ func caps(cs ...string) netconf.CapabilitySet {
 	return netconf.NewCapabilitySet(cs)
 }
 
-// runServerSession runs ServerSession in a goroutine and sends the result
-// (session, error) on the returned channels. The caller must receive from
-// both channels to avoid goroutine leaks.
-func runServerSession(
-	trp transport.Transport,
-	localCaps netconf.CapabilitySet,
-	sessionID uint32,
-) (<-chan *netconf.Session, <-chan error) {
-	sessCh := make(chan *netconf.Session, 1)
-	errCh := make(chan error, 1)
-	go func() {
-		s, err := netconf.ServerSession(trp, localCaps, sessionID)
-		sessCh <- s
-		errCh <- err
-	}()
-	return sessCh, errCh
-}
-
 // ── happy path: both peers support base:1.1 ───────────────────────────────────
 
 func TestSession_BothSupport11_UpgradesToChunked(t *testing.T) {
@@ -52,11 +34,9 @@ func TestSession_BothSupport11_UpgradesToChunked(t *testing.T) {
 		srvSess *netconf.Session
 		srvErr  error
 	)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		srvSess, srvErr = netconf.ServerSession(serverT, serverCaps, 42)
-	}()
+	})
 
 	cliSess, cliErr := netconf.ClientSession(clientT, clientCaps)
 	wg.Wait()
@@ -93,11 +73,9 @@ func TestSession_ServerOnly10_StaysEOM(t *testing.T) {
 		srvSess *netconf.Session
 		srvErr  error
 	)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		srvSess, srvErr = netconf.ServerSession(serverT, serverCaps, 7)
-	}()
+	})
 
 	cliSess, cliErr := netconf.ClientSession(clientT, clientCaps)
 	wg.Wait()
@@ -125,11 +103,9 @@ func TestSession_ClientOnly10_StaysEOM(t *testing.T) {
 		srvSess *netconf.Session
 		srvErr  error
 	)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		srvSess, srvErr = netconf.ServerSession(serverT, serverCaps, 3)
-	}()
+	})
 
 	cliSess, cliErr := netconf.ClientSession(clientT, clientCaps)
 	wg.Wait()
@@ -160,11 +136,9 @@ func TestSession_CapabilityIntersection(t *testing.T) {
 		srvSess *netconf.Session
 		srvErr  error
 	)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		srvSess, srvErr = netconf.ServerSession(serverT, serverCaps, 99)
-	}()
+	})
 
 	cliSess, cliErr := netconf.ClientSession(clientT, clientCaps)
 	wg.Wait()
@@ -187,7 +161,6 @@ func TestSession_CapabilityIntersection(t *testing.T) {
 
 func TestSession_SessionIDPropagation(t *testing.T) {
 	for _, id := range []uint32{1, 42, 1000, 4294967295} {
-		id := id
 		t.Run("id="+strconv.FormatUint(uint64(id), 10), func(t *testing.T) {
 			clientT, serverT := transport.NewLoopback()
 			defer clientT.Close()
@@ -197,11 +170,9 @@ func TestSession_SessionIDPropagation(t *testing.T) {
 				wg     sync.WaitGroup
 				srvErr error
 			)
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				_, srvErr = netconf.ServerSession(serverT, caps(netconf.BaseCap10), id)
-			}()
+			})
 
 			cliSess, cliErr := netconf.ClientSession(clientT, caps(netconf.BaseCap10))
 			wg.Wait()
@@ -299,11 +270,9 @@ func TestSession_LocalCapabilitiesAccessor(t *testing.T) {
 		srvSess *netconf.Session
 		srvErr  error
 	)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		srvSess, srvErr = netconf.ServerSession(serverT, serverCaps, 1)
-	}()
+	})
 
 	cliSess, cliErr := netconf.ClientSession(clientT, clientCaps)
 	wg.Wait()

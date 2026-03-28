@@ -114,7 +114,7 @@ func ValidateURN(s string) error {
 		return fmt.Errorf("capability URN must not be empty")
 	}
 	if !strings.HasPrefix(s, "urn:ietf:params:netconf:") {
-		return fmt.Errorf("capability URN %q does not start with urn:ietf:params:netconf:", s)
+		return fmt.Errorf("capability URN %q does not start with \"urn:ietf:params:netconf:\"", s)
 	}
 	if !urnRE.MatchString(s) {
 		return fmt.Errorf("capability URN %q does not match RFC 7803 format "+

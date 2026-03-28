@@ -95,7 +95,7 @@ func TestLoopback_RoundTrip_RequestResponse(t *testing.T) {
 		done <- transport.WriteMsg(server, response)
 	}()
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		require.NoError(t, <-done, "goroutine %d must succeed", i)
 	}
 }

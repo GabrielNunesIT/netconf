@@ -174,25 +174,24 @@ func extractUsername(cert *x509.Certificate, entry MapEntry) string {
 // firstRFC822Name returns the first rfc822Name SAN with the host part
 // lowercased. Returns "" if no rfc822Name SAN is present.
 func firstRFC822Name(cert *x509.Certificate) string {
-	for _, email := range cert.EmailAddresses {
-		if idx := strings.LastIndex(email, "@"); idx >= 0 {
-			local := email[:idx]
-			host := strings.ToLower(email[idx+1:])
-			return local + "@" + host
-		}
-		// Malformed (no @) — return as-is rather than silently drop.
-		return email
+	if len(cert.EmailAddresses) == 0 {
+		return ""
 	}
-	return ""
+	email := cert.EmailAddresses[0]
+	if idx := strings.LastIndex(email, "@"); idx >= 0 {
+		return email[:idx] + "@" + strings.ToLower(email[idx+1:])
+	}
+	// Malformed (no @) — return as-is rather than silently drop.
+	return email
 }
 
 // firstDNSName returns the first dNSName SAN, lowercased.
 // Returns "" if no dNSName SAN is present.
 func firstDNSName(cert *x509.Certificate) string {
-	for _, dns := range cert.DNSNames {
-		return strings.ToLower(dns)
+	if len(cert.DNSNames) == 0 {
+		return ""
 	}
-	return ""
+	return strings.ToLower(cert.DNSNames[0])
 }
 
 // firstIPAddress returns the first iPAddress SAN formatted per RFC 7589 §7:
@@ -202,15 +201,16 @@ func firstDNSName(cert *x509.Certificate) string {
 //
 // Returns "" if no iPAddress SAN is present.
 func firstIPAddress(cert *x509.Certificate) string {
-	for _, ip := range cert.IPAddresses {
-		if ip4 := ip.To4(); ip4 != nil {
-			// IPv4: use standard dotted-quad via net.IP.String().
-			return ip4.String()
-		}
-		// IPv6: 32-char lowercase hex, NOT colon-separated (RFC 7589 §7).
-		return hex.EncodeToString(ip.To16())
+	if len(cert.IPAddresses) == 0 {
+		return ""
 	}
-	return ""
+	ip := cert.IPAddresses[0]
+	if ip4 := ip.To4(); ip4 != nil {
+		// IPv4: use standard dotted-quad via net.IP.String().
+		return ip4.String()
+	}
+	// IPv6: 32-char lowercase hex, NOT colon-separated (RFC 7589 §7).
+	return hex.EncodeToString(ip.To16())
 }
 
 // certFingerprint is a helper used in tests to compute the SHA-256 fingerprint

@@ -15,9 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// yangPushCaps extends subCaps with the YANG-push capability URI.
-var yangPushCaps = append(subCaps, yangpush.CapabilityURI)
-
 // ─── TestClient_YangPush_PeriodicSubscription ─────────────────────────────────
 
 // TestClient_YangPush_PeriodicSubscription proves the YANG-push periodic

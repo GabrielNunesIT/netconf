@@ -43,16 +43,6 @@ func framerRoundTrip(t *testing.T, framer *transport.Framer, msg []byte) []byte 
 	return got
 }
 
-// pipeRW wraps separate read/write pipe ends as a single io.ReadWriter.
-// Used when the test needs a Framer with truly separate streams.
-type pipeRW struct {
-	r io.Reader
-	w io.Writer
-}
-
-func (p *pipeRW) Read(b []byte) (int, error)  { return p.r.Read(b) }
-func (p *pipeRW) Write(b []byte) (int, error) { return p.w.Write(b) }
-
 // ── EOM mode: encoding ────────────────────────────────────────────────────────
 
 func TestEOM_MsgWriter_AppendsDelimiter(t *testing.T) {
@@ -219,7 +209,7 @@ func TestChunked_MsgWriter_EmptyBody(t *testing.T) {
 
 func TestChunked_MsgReader_SingleChunk(t *testing.T) {
 	msg := "<get/>"
-	wire := []byte(fmt.Sprintf("\n#%d\n%s\n##\n", len(msg), msg))
+	wire := fmt.Appendf(nil, "\n#%d\n%s\n##\n", len(msg), msg)
 	framer := transport.NewFramer(newReadOnlyRW(wire))
 	framer.Upgrade()
 
@@ -235,8 +225,8 @@ func TestChunked_MsgReader_MultipleChunks(t *testing.T) {
 	// Two chunks concatenated before the end-of-chunks marker.
 	part1 := "<rpc message-id=\"1\">"
 	part2 := "<get/></rpc>"
-	wire := []byte(fmt.Sprintf("\n#%d\n%s\n#%d\n%s\n##\n",
-		len(part1), part1, len(part2), part2))
+	wire := fmt.Appendf(nil, "\n#%d\n%s\n#%d\n%s\n##\n",
+		len(part1), part1, len(part2), part2)
 
 	framer := transport.NewFramer(newReadOnlyRW(wire))
 	framer.Upgrade()
@@ -310,7 +300,7 @@ func TestChunked_LargeMessage_ChunkSizeHeader(t *testing.T) {
 	require.NoError(t, w.Close())
 
 	raw := buf.Bytes()
-	expectedPrefix := []byte(fmt.Sprintf("\n#%d\n", len(msg)))
+	expectedPrefix := fmt.Appendf(nil, "\n#%d\n", len(msg))
 	assert.True(t, bytes.HasPrefix(raw, expectedPrefix),
 		"chunk header must carry the exact byte length")
 

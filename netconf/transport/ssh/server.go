@@ -148,7 +148,7 @@ func (l *Listener) handleConn(conn net.Conn) {
 		// silently. Only fatal Accept-level errors are forwarded.
 		return
 	}
-	defer sshConn.Close()
+	defer func() { _ = sshConn.Close() }()
 
 	// Discard global requests (e.g., keep-alives).
 	go gossh.DiscardRequests(reqs)

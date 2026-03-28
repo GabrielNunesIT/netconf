@@ -129,7 +129,7 @@ func ReadMsg(t Transport) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ReadMsg: MsgReader: %w", err)
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 	data, err := io.ReadAll(r)
 	if err != nil {
 		return nil, fmt.Errorf("ReadMsg: read body: %w", err)
