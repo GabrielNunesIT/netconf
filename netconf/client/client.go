@@ -47,6 +47,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"net"
 	"sync"
 	"sync/atomic"
 
@@ -652,3 +653,93 @@ func DialTLS(ctx context.Context, addr string, config *cryptotls.Config, localCa
 	return NewClient(sess), nil
 }
 
+// ─── Call Home (RFC 8071) ─────────────────────────────────────────────────────
+
+// AcceptCallHomeSSH listens on ln for an incoming TCP connection from a
+// NETCONF server performing SSH call home (RFC 8071 §3). It accepts the first
+// connection, runs the SSH client protocol, negotiates the NETCONF hello
+// exchange, and returns a ready-to-use Client.
+//
+// In call home, the NETCONF server initiates TCP to the NETCONF client. The
+// SSH client/server roles are unchanged — this function runs the SSH client
+// protocol over the accepted connection.
+//
+// ln must already be bound and listening (the caller creates net.Listen before
+// calling AcceptCallHomeSSH). The caller is responsible for closing ln after
+// use. For a server that accepts multiple call-home connections, call
+// AcceptCallHomeSSH in a loop.
+//
+// localCaps declares the capabilities this client advertises in the hello.
+//
+// ctx is checked for cancellation before Accept is called. If ctx is already
+// done, AcceptCallHomeSSH returns immediately with an error. To cancel a
+// blocked Accept, the caller must close ln — the same pattern as the stdlib
+// net.Listener.
+func AcceptCallHomeSSH(ctx context.Context, ln net.Listener, config *gossh.ClientConfig, localCaps netconf.CapabilitySet) (*Client, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("client: AcceptCallHomeSSH: context already done: %w", err)
+	}
+
+	conn, err := ln.Accept()
+	if err != nil {
+		return nil, fmt.Errorf("client: AcceptCallHomeSSH: accept: %w", err)
+	}
+
+	trp, err := ncssh.DialConn(conn, conn.RemoteAddr().String(), config)
+	if err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("client: AcceptCallHomeSSH: SSH handshake: %w", err)
+	}
+
+	sess, err := netconf.ClientSession(trp, localCaps)
+	if err != nil {
+		_ = trp.Close()
+		return nil, fmt.Errorf("client: AcceptCallHomeSSH: NETCONF hello: %w", err)
+	}
+
+	return NewClient(sess), nil
+}
+
+// AcceptCallHomeTLS listens on ln for an incoming TCP connection from a
+// NETCONF server performing TLS call home (RFC 8071 §4). It accepts the first
+// connection, runs the TLS client protocol, negotiates the NETCONF hello
+// exchange, and returns a ready-to-use Client.
+//
+// In call home, the NETCONF server initiates TCP to the NETCONF client. The
+// TLS client/server roles are unchanged — this function runs the TLS client
+// protocol over the accepted connection.
+//
+// ln must already be bound and listening. The caller is responsible for
+// closing ln. For a server that accepts multiple call-home connections, call
+// AcceptCallHomeTLS in a loop.
+//
+// localCaps declares the capabilities this client advertises in the hello.
+//
+// ctx is checked for cancellation before Accept is called. To cancel a
+// blocked Accept, the caller must close ln.
+func AcceptCallHomeTLS(ctx context.Context, ln net.Listener, config *cryptotls.Config, localCaps netconf.CapabilitySet) (*Client, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("client: AcceptCallHomeTLS: context already done: %w", err)
+	}
+
+	conn, err := ln.Accept()
+	if err != nil {
+		return nil, fmt.Errorf("client: AcceptCallHomeTLS: accept: %w", err)
+	}
+
+	tlsConn := cryptotls.Client(conn, config)
+	if err := tlsConn.Handshake(); err != nil {
+		_ = tlsConn.Close()
+		return nil, fmt.Errorf("client: AcceptCallHomeTLS: TLS handshake: %w", err)
+	}
+
+	trp := nctls.NewClientTransport(tlsConn)
+
+	sess, err := netconf.ClientSession(trp, localCaps)
+	if err != nil {
+		_ = trp.Close()
+		return nil, fmt.Errorf("client: AcceptCallHomeTLS: NETCONF hello: %w", err)
+	}
+
+	return NewClient(sess), nil
+}
