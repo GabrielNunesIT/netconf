@@ -50,7 +50,7 @@ type RPC struct {
 
 // RPCReply represents a NETCONF <rpc-reply> response message (RFC 6241 §4.2).
 //
-// For successful operations with no data, Ok will be true and Body will be nil.
+// For successful operations with no data, Ok will be non-nil and Body will be nil.
 // For operations returning data, Body contains the raw inner XML.
 // For errors, Body contains one or more <rpc-error> elements.
 type RPCReply struct {

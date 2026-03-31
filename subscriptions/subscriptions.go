@@ -55,7 +55,7 @@ const SubscriptionsNS = "urn:ietf:params:xml:ns:yang:ietf-subscriptions"
 //
 // Note: this is a YANG module namespace URI, not a
 // "urn:ietf:params:netconf:capability:…" URN. Do not pass it to
-// netconf.ValidateURN .
+// netconf.ValidateURN.
 const CapabilityURI = "urn:ietf:params:xml:ns:yang:ietf-subscriptions"
 
 // NetconfSubscriptionsNS is the XML namespace for the ietf-netconf-subscriptions
@@ -68,7 +68,7 @@ const NetconfSubscriptionsNS = "urn:ietf:params:xml:ns:yang:ietf-netconf-subscri
 //
 // Note: this is a YANG module namespace URI, not a
 // "urn:ietf:params:netconf:capability:…" URN. Do not pass it to
-// netconf.ValidateURN .
+// netconf.ValidateURN.
 const CapabilityURINetconf = "urn:ietf:params:xml:ns:yang:ietf-netconf-subscriptions"
 
 // SubscriptionID is a uint32 identifying a specific subscription instance.
@@ -102,7 +102,6 @@ type FilterSpec struct {
 //   - Filter:     optional filter to select a subset of event records.
 //   - StopTime:   optional xs:dateTime after which the subscription expires.
 //   - Period:     optional uint64 for periodic yang-push subscriptions (RFC 8641).
-//     Included here for forward compatibility; S05 uses this field.
 //   - Dscp:       optional DSCP value for network-level QoS marking.
 type EstablishSubscriptionRequest struct {
 	XMLName  xml.Name    `xml:"urn:ietf:params:xml:ns:yang:ietf-subscriptions establish-subscription"`

@@ -56,7 +56,7 @@ const YangPushNS = "urn:ietf:params:xml:ns:yang:ietf-yang-push"
 //
 // Note: this is a YANG module namespace URI, not a
 // "urn:ietf:params:netconf:capability:…" URN. Do not pass it to
-// netconf.ValidateURN .
+// netconf.ValidateURN.
 const CapabilityURI = "urn:ietf:params:xml:ns:yang:ietf-yang-push"
 
 // ── Subscription triggers ─────────────────────────────────────────────────────

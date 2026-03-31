@@ -94,6 +94,7 @@ func (s *Session) RecvStream() (io.ReadCloser, error) {
 //
 // Returns an initialised Session on success, or a descriptive error on failure.
 // The transport is NOT closed on error; the caller is responsible for cleanup.
+// On error, closing the transport will unblock any in-flight send goroutine.
 func ClientSession(trp transport.Transport, localCaps CapabilitySet) (*Session, error) {
 	// Send our hello in a goroutine so the receive below can unblock the peer's
 	// send simultaneously. RFC 6241 §8.1 requires both sides to send hello
@@ -154,6 +155,7 @@ func ClientSession(trp transport.Transport, localCaps CapabilitySet) (*Session, 
 //
 // Returns an initialised Session on success, or a descriptive error on failure.
 // The transport is NOT closed on error; the caller is responsible for cleanup.
+// On error, closing the transport will unblock any in-flight send goroutine.
 func ServerSession(trp transport.Transport, localCaps CapabilitySet, sessionID uint32) (*Session, error) {
 	// Send our hello in a goroutine (same unbuffered-pipe rationale as
 	// ClientSession — both peers must send simultaneously).

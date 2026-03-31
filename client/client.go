@@ -20,24 +20,15 @@
 // callers can tell whether the session was already closing or an operation
 // was in flight when the transport died.
 //
-// # Observability Impact
+// # Observability
 //
-// After T02 the following signals are added/changed:
-//   - Typed method errors always include the operation name in the error chain
-//     (e.g. "client: GetConfig: rpc-error: type=… tag=…") so log lines
-//     identify both the caller-facing method and the server-side error.
-//   - errors.As(err, &netconf.RPCError{}) succeeds whenever a server replied
-//     with <rpc-error> — callers can extract Tag, Message, Severity etc.
-//   - checkDataReply surfaces XML decode failures as wrapped errors with the
-//     text "decode DataReply" — distinguishable from RPC-level errors.
-//   - Dial errors chain ssh.Dial / ClientSession / NewClient steps, so the
-//     failing layer is always named in the error string.
-//   - go test ./... -run TestClient_RPCError -v shows the
-//     full rpc-error propagation path through the typed method layer.
-//   - go test ./... -run TestClient_SSHLoopback -v proves
-//     the full TCP→SSH→NETCONF hello→GetConfig→DataReply stack.
-//   - go test ./... -run TestClient_TLSLoopback -v proves
-//     the full TCP→TLS→NETCONF hello→GetConfig→DataReply stack.
+// Typed method errors always include the operation name in the error chain
+// (e.g. "client: GetConfig: rpc-error: type=… tag=…") so log lines
+// identify both the caller-facing method and the server-side error.
+// errors.As(err, &netconf.RPCError{}) succeeds whenever a server replied
+// with <rpc-error> — callers can extract Tag, Message, Severity etc.
+// checkDataReply surfaces XML decode failures as wrapped errors with the
+// text "decode DataReply" — distinguishable from RPC-level errors.
 package client
 
 import (
@@ -745,8 +736,6 @@ func (c *Client) CancelCommit(ctx context.Context, persistID string) error {
 // ctx is checked for cancellation before the dial is started. The SSH dial
 // itself uses config.Timeout for its timeout; ctx is not propagated into the
 // SSH layer (golang.org/x/crypto/ssh.Dial does not accept a context).
-// This will be improved in a future version when the SSH library gains context
-// support.
 //
 // On any error, all partially-opened resources are cleaned up before returning.
 func Dial(ctx context.Context, addr string, config *gossh.ClientConfig, localCaps netconf.CapabilitySet) (*Client, error) {

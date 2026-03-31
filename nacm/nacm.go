@@ -11,7 +11,7 @@
 // This is a YANG module namespace, NOT a NETCONF capability URN of the form
 // "urn:ietf:params:netconf:capability:…", so it must NOT be passed to
 // netconf.ValidateURN. Use CapabilityURI to announce the capability in a
-// NETCONF hello exchange .
+// NETCONF hello exchange.
 //
 // # Data Model
 //
@@ -56,7 +56,7 @@ const NacmNS = "urn:ietf:params:xml:ns:yang:ietf-netconf-acm"
 //
 // Note: this is a YANG module namespace URI, not a
 // "urn:ietf:params:netconf:capability:…" URN. Do not pass it to
-// netconf.ValidateURN .
+// netconf.ValidateURN.
 const CapabilityURI = "urn:ietf:params:xml:ns:yang:ietf-netconf-acm"
 
 // Action represents the NACM rule action (RFC 8341 §3.2.6).

@@ -99,7 +99,7 @@ type GlobalLock struct {
 // PartialLockInfo describes one active partial-lock entry (RFC 6022 §3.1.2.1.2).
 // This type is named PartialLockInfo (not PartialLock) to avoid a name
 // collision with the netconf.PartialLock operation type defined in the base
-// netconf package (S03).
+// netconf package.
 //
 //   - LockID:      the lock-id assigned by the server.
 //   - LockedTime:  timestamp when the lock was acquired (RFC 3339 format).

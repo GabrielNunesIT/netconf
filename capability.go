@@ -132,7 +132,15 @@ func NewCapabilitySet(caps []string) CapabilitySet {
 }
 
 // Contains reports whether the set contains the given capability URN.
-// The comparison is case-sensitive (URNs are case-sensitive per RFC 2141).
+// The comparison is case-sensitive (URNs are case-sensitive per RFC 2141)
+// and exact — query parameters are not stripped.
+//
+// Note: some devices advertise the with-defaults capability with query
+// parameters (e.g. "urn:…:with-defaults:1.0?basic-mode=explicit"). Such
+// a value will not match CapabilityWithDefaults by exact string comparison.
+// Callers that need to detect the with-defaults capability from a real device
+// hello should use strings.HasPrefix(uri, CapabilityWithDefaults) in addition
+// to Contains.
 func (cs CapabilitySet) Contains(c Capability) bool {
 	return slices.Contains(cs, c)
 }

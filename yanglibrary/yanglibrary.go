@@ -45,7 +45,7 @@ const YangLibraryNS = "urn:ietf:params:xml:ns:yang:ietf-yang-library"
 //
 // Note: this is a YANG module namespace URI, not a
 // "urn:ietf:params:netconf:capability:…" URN. Do not pass it to
-// netconf.ValidateURN .
+// netconf.ValidateURN.
 const CapabilityURI = "urn:ietf:params:xml:ns:yang:ietf-yang-library"
 
 // YangLibrary is the top-level /yang-library container (RFC 8525 §2.1).

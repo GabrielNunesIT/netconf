@@ -14,20 +14,15 @@
 //     RPCError values are marshalled directly; other errors become a generic
 //     operation-failed rpc-error whose message field carries err.Error().
 //
-// # Observability Impact
+// # Observability
 //
-// After T01 the following signals are available:
-//   - Serve returns a descriptive error when the transport fails or context is
-//     cancelled; the error wraps the underlying transport/context error so
-//     callers can log it verbatim or use errors.Is/As.
-//   - operation-not-supported replies include the operation name in the
-//     error-message field, making them identifiable in captured traffic.
-//   - handler dispatch errors include the operation name and message-id in
-//     the error-message string so production logs can correlate failures.
-//   - go test ./... -run TestServer -v shows each dispatch
-//     scenario as a distinct named test case.
-//   - go test ./... -run TestServer_UnknownOperation -v
-//     prints the operation name in the captured rpc-error body.
+// Serve returns a descriptive error when the transport fails or context is
+// cancelled; the error wraps the underlying transport/context error so
+// callers can log it verbatim or use errors.Is/As.
+// Operation-not-supported replies include the operation name in the
+// error-message field, making them identifiable in captured traffic.
+// Handler dispatch errors include the operation name and message-id in
+// the error-message string so production logs can correlate failures.
 //
 // Redaction note: RPC body may contain device configuration. Do not log at
 // INFO or higher in production; log at DEBUG only.
@@ -109,6 +104,15 @@ func (s *Server) RegisterHandler(opName string, h Handler) {
 // and decode the body directly (zero body allocation). Plain Handler
 // implementations continue to work unchanged — Serve materialises rpc.Body
 // for them.
+//
+// Context cancellation: cancelling ctx signals handlers to stop new work, but
+// does NOT by itself unblock the blocking sess.RecvStream call. To stop Serve
+// promptly, close the underlying transport (e.g. sess.Close()) in addition to
+// cancelling ctx.
+//
+// Panic handling: if a Handler or StreamHandler panics, the panic propagates
+// to the caller of Serve. Use a recover wrapper around Serve if your handlers
+// may panic.
 //
 // For each well-formed RPC, Serve:
 //  1. Extracts the message-id and operation name from the streaming decoder.
