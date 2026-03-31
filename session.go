@@ -1,15 +1,5 @@
-// Package netconf implements the NETCONF protocol (RFC 6241).
-//
-// This file implements the Session type, which orchestrates the NETCONF session
-// lifecycle: hello exchange, capability negotiation, session-id assignment, and
-// framing auto-negotiation. It is usable from both client and server
-// perspectives.
-//
-// Observability: session establishment errors (missing base:1.0, XML decode
-// failure, transport I/O error) are returned as plain Go errors with descriptive
-// context strings. All errors name the field or step that failed so callers can
-// log them verbatim. Session-ids and capability URNs are safe to log; no
-// secrets pass through this layer.
+// Session lifecycle: hello exchange, capability negotiation, and framing negotiation.
+
 package netconf
 
 import (
@@ -75,6 +65,19 @@ func (s *Session) Send(msg []byte) error {
 // must be called from a single goroutine — the client dispatcher goroutine.
 func (s *Session) Recv() ([]byte, error) {
 	return transport.ReadMsg(s.trp)
+}
+
+// RecvStream returns a ReadCloser for the next complete NETCONF message.
+//
+// Unlike Recv, the message bytes are NOT materialised into a []byte —the
+// caller reads directly from the framing-layer buffer. The caller MUST Close
+// the returned reader before calling RecvStream (or Recv) again.
+//
+// This is the low-allocation path for callers (such as the client dispatcher)
+// that feed the message bytes directly into an xml.Decoder without needing
+// the raw []byte. For callers that do need the raw bytes, use Recv instead.
+func (s *Session) RecvStream() (io.ReadCloser, error) {
+	return s.trp.MsgReader()
 }
 
 // ─── Client-side session establishment ────────────────────────────────────────

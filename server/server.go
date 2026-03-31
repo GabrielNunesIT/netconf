@@ -24,9 +24,9 @@
 //     error-message field, making them identifiable in captured traffic.
 //   - handler dispatch errors include the operation name and message-id in
 //     the error-message string so production logs can correlate failures.
-//   - go test ./netconf/server/... -run TestServer -v shows each dispatch
+//   - go test ./... -run TestServer -v shows each dispatch
 //     scenario as a distinct named test case.
-//   - go test ./netconf/server/... -run TestServer_UnknownOperation -v
+//   - go test ./... -run TestServer_UnknownOperation -v
 //     prints the operation name in the captured rpc-error body.
 //
 // Redaction note: RPC body may contain device configuration. Do not log at
@@ -34,7 +34,6 @@
 package server
 
 import (
-	"bytes"
 	"context"
 	"encoding/xml"
 	"fmt"
@@ -57,6 +56,21 @@ import (
 //     err.Error() and embedded in <rpc-reply>
 type Handler interface {
 	Handle(ctx context.Context, sess *netconf.Session, rpc *netconf.RPC) ([]byte, error)
+}
+
+// StreamHandler is an optional interface that handlers may implement to receive
+// the XML decoder positioned at the operation start element. Implementing
+// StreamHandler avoids materialising rpc.Body as []byte — the handler decodes
+// the operation body directly from the decoder stream.
+//
+// HandleStream is called with dec positioned such that the next DecodeElement
+// call with opStart will consume the complete operation element. The handler
+// MUST call dec.DecodeElement (or consume the element completely) before
+// returning. The rpc parameter carries the message-id; its Body field is nil.
+//
+// Return semantics are identical to Handler.Handle.
+type StreamHandler interface {
+	HandleStream(ctx context.Context, sess *netconf.Session, rpc *netconf.RPC, dec *xml.Decoder, opStart xml.StartElement) ([]byte, error)
 }
 
 // HandlerFunc is a function adapter that implements Handler, analogous to
@@ -86,41 +100,55 @@ func (s *Server) RegisterHandler(opName string, h Handler) {
 }
 
 // Serve runs the RPC dispatch loop over sess until one of:
-//   - sess.Recv returns an error (transport failure or context cancellation)
+//   - the transport returns an error (transport failure or context cancellation)
 //   - a <close-session> RPC is received (Serve sends <ok/> and returns nil)
 //
+// Serve uses a streaming decode path: each message is parsed in a single pass
+// without materialising an intermediate []byte. Handlers that implement
+// StreamHandler receive the decoder positioned at the operation start element
+// and decode the body directly (zero body allocation). Plain Handler
+// implementations continue to work unchanged — Serve materialises rpc.Body
+// for them.
+//
 // For each well-formed RPC, Serve:
-//  1. Extracts the operation name from the first XML element in the RPC body.
+//  1. Extracts the message-id and operation name from the streaming decoder.
 //  2. Intercepts <close-session>: sends <ok/>, returns nil.
 //  3. Looks up the handler by operation name.
 //  4. If none found: sends an operation-not-supported rpc-error reply.
-//  5. Calls the handler and converts its result to a reply (see Handler docs).
+//  5. Calls the handler (StreamHandler or Handler) and converts its result to
+//     a reply (see Handler docs).
 //  6. Sends the reply via sess.Send.
 //
 // Serve is single-threaded: one handler runs at a time per session.
 func (s *Server) Serve(ctx context.Context, sess *netconf.Session) error {
 	for {
-		raw, err := sess.Recv()
+		rc, err := sess.RecvStream()
 		if err != nil {
 			return fmt.Errorf("server: Serve: recv: %w", err)
 		}
 
-		var rpc netconf.RPC
-		if err := xml.Unmarshal(raw, &rpc); err != nil {
+		// Single-pass decode: find the <rpc> start element and extract
+		// the message-id attribute, then find the operation start element.
+		decoder := xml.NewDecoder(rc)
+
+		msgID, opStart, ok := parseRPCHeader(decoder)
+		if !ok {
 			// Malformed message — we have no message-id to reply with, so skip.
+			_ = rc.Close()
 			continue
 		}
 
-		opName := firstElementName(rpc.Body)
+		opName := opStart.Name.Local
 
 		// Built-in: intercept close-session before handler lookup.
 		if opName == "close-session" {
+			_ = rc.Close()
 			reply := &netconf.RPCReply{
-				MessageID: rpc.MessageID,
+				MessageID: msgID,
 				Ok:        &struct{}{},
 			}
 			if sendErr := sendReply(sess, reply); sendErr != nil {
-				return fmt.Errorf("server: Serve: send close-session reply (message-id=%s): %w", rpc.MessageID, sendErr)
+				return fmt.Errorf("server: Serve: send close-session reply (message-id=%s): %w", msgID, sendErr)
 			}
 			return nil
 		}
@@ -128,35 +156,55 @@ func (s *Server) Serve(ctx context.Context, sess *netconf.Session) error {
 		// Dispatch to registered handler or return operation-not-supported.
 		h, ok := s.handlers[opName]
 		if !ok {
+			_ = rc.Close()
 			rpcErr := netconf.RPCError{
 				Type:     "protocol",
 				Tag:      "operation-not-supported",
 				Severity: "error",
 				Message:  fmt.Sprintf("operation %q is not supported", opName),
 			}
-			reply, buildErr := buildErrorReply(rpc.MessageID, rpcErr)
+			reply, buildErr := buildErrorReply(msgID, rpcErr)
 			if buildErr != nil {
-				return fmt.Errorf("server: Serve: build operation-not-supported reply (message-id=%s, op=%s): %w", rpc.MessageID, opName, buildErr)
+				return fmt.Errorf("server: Serve: build operation-not-supported reply (message-id=%s, op=%s): %w", msgID, opName, buildErr)
 			}
 			if sendErr := sendReply(sess, reply); sendErr != nil {
-				return fmt.Errorf("server: Serve: send operation-not-supported reply (message-id=%s, op=%s): %w", rpc.MessageID, opName, sendErr)
+				return fmt.Errorf("server: Serve: send operation-not-supported reply (message-id=%s, op=%s): %w", msgID, opName, sendErr)
 			}
 			continue
 		}
 
-		// Call handler.
-		body, handlerErr := h.Handle(ctx, sess, &rpc)
+		// Dispatch: StreamHandler receives the decoder directly (no body
+		// materialisation); plain Handler receives a conventional RPC struct.
+		rpc := &netconf.RPC{MessageID: msgID}
+		var body []byte
+		var handlerErr error
+
+		if sh, ok := h.(StreamHandler); ok {
+			// Fast path: handler decodes op body from the stream directly.
+			body, handlerErr = sh.HandleStream(ctx, sess, rpc, decoder, opStart)
+			_ = rc.Close()
+		} else {
+			// Conventional path: materialise the operation element as []byte
+			// so Handler.Handle receives the expected rpc.Body field.
+			rpc.Body, err = marshalOpElement(decoder, opStart)
+			_ = rc.Close()
+			if err != nil {
+				// Malformed body — skip without a reply (no meaningful message).
+				continue
+			}
+			body, handlerErr = h.Handle(ctx, sess, rpc)
+		}
 
 		var reply *netconf.RPCReply
 		switch {
 		case handlerErr == nil && body == nil:
 			reply = &netconf.RPCReply{
-				MessageID: rpc.MessageID,
+				MessageID: msgID,
 				Ok:        &struct{}{},
 			}
 		case handlerErr == nil:
 			reply = &netconf.RPCReply{
-				MessageID: rpc.MessageID,
+				MessageID: msgID,
 				Body:      body,
 			}
 		default:
@@ -170,18 +218,18 @@ func (s *Server) Serve(ctx context.Context, sess *netconf.Session) error {
 					Type:     "application",
 					Tag:      "operation-failed",
 					Severity: "error",
-					Message:  fmt.Sprintf("op=%s message-id=%s: %s", opName, rpc.MessageID, handlerErr.Error()),
+					Message:  fmt.Sprintf("op=%s message-id=%s: %s", opName, msgID, handlerErr.Error()),
 				}
 			}
 			var buildErr error
-			reply, buildErr = buildErrorReply(rpc.MessageID, rpcErr)
+			reply, buildErr = buildErrorReply(msgID, rpcErr)
 			if buildErr != nil {
-				return fmt.Errorf("server: Serve: build handler error reply (message-id=%s, op=%s): %w", rpc.MessageID, opName, buildErr)
+				return fmt.Errorf("server: Serve: build handler error reply (message-id=%s, op=%s): %w", msgID, opName, buildErr)
 			}
 		}
 
 		if sendErr := sendReply(sess, reply); sendErr != nil {
-			return fmt.Errorf("server: Serve: send reply (message-id=%s, op=%s): %w", rpc.MessageID, opName, sendErr)
+			return fmt.Errorf("server: Serve: send reply (message-id=%s, op=%s): %w", msgID, opName, sendErr)
 		}
 	}
 }
@@ -210,19 +258,74 @@ func SendNotification(sess *netconf.Session, n *netconf.Notification) error {
 
 // ── internal helpers ──────────────────────────────────────────────────────────
 
-// firstElementName returns the XML local name of the first start element found
-// in b, or "" if b is empty or contains no start element.
-func firstElementName(b []byte) string {
-	d := xml.NewDecoder(bytes.NewReader(b))
+// parseRPCHeader reads tokens from dec to find the <rpc> start element
+// (extracting the message-id attribute) and then the first child start
+// element (the operation). Returns (msgID, opStart, true) on success, or
+// ("", zero, false) if the message is malformed.
+func parseRPCHeader(dec *xml.Decoder) (msgID string, opStart xml.StartElement, ok bool) {
+	// Find the <rpc> start element.
+	var rpcStart xml.StartElement
+	var foundRPC bool
 	for {
-		tok, err := d.Token()
+		tok, err := dec.Token()
 		if err != nil {
-			return ""
+			return "", xml.StartElement{}, false
 		}
-		if se, ok := tok.(xml.StartElement); ok {
-			return se.Name.Local
+		if se, isStart := tok.(xml.StartElement); isStart {
+			rpcStart = se
+			foundRPC = true
+			break
 		}
 	}
+	if !foundRPC {
+		return "", xml.StartElement{}, false
+	}
+
+	// Extract message-id from <rpc> attributes.
+	for _, attr := range rpcStart.Attr {
+		if attr.Name.Local == "message-id" {
+			msgID = attr.Value
+			break
+		}
+	}
+	if msgID == "" {
+		return "", xml.StartElement{}, false
+	}
+
+	// Find the first child start element — the operation element.
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return "", xml.StartElement{}, false
+		}
+		if se, isStart := tok.(xml.StartElement); isStart {
+			return msgID, se, true
+		}
+		// Skip CharData, ProcInst, etc.
+	}
+}
+
+// marshalOpElement reads the operation element from dec (starting at opStart)
+// and returns it as a complete []byte suitable for rpc.Body.
+// The returned bytes include the element's opening tag, body, and closing tag.
+func marshalOpElement(dec *xml.Decoder, opStart xml.StartElement) ([]byte, error) {
+	// opBody captures the operation element's innerxml. We then wrap it with
+	// the start/end tags to reconstruct the full element for rpc.Body.
+	type opBody struct {
+		Inner []byte `xml:",innerxml"`
+	}
+	var ob opBody
+	if err := dec.DecodeElement(&ob, &opStart); err != nil {
+		return nil, err
+	}
+
+	// Reconstruct the full element: <opName xmlns="...">innerxml</opName>
+	// Use xml.Marshal on a struct with the same XMLName and innerxml.
+	type fullOp struct {
+		XMLName xml.Name
+		Inner   []byte `xml:",innerxml"`
+	}
+	return xml.Marshal(fullOp{XMLName: opStart.Name, Inner: ob.Inner})
 }
 
 // buildErrorReply marshals rpcErr and wraps it as the body of an RPCReply.

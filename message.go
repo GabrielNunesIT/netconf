@@ -1,8 +1,5 @@
-// Package netconf implements the NETCONF protocol (RFC 6241).
-//
-// This file defines the XML message types used in the NETCONF protocol:
-// Hello, RPC, and RPCReply. All types marshal/unmarshal with the canonical
-// NETCONF base namespace "urn:ietf:params:xml:ns:netconf:base:1.0".
+// Wire message types: Hello, RPC, RPCReply, Notification, and their XML namespace constants.
+
 package netconf
 
 import "encoding/xml"

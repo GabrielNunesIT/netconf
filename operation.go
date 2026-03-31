@@ -1,13 +1,5 @@
-// Package netconf implements the NETCONF protocol (RFC 6241).
-//
-// This file defines the 13 base protocol operation request types described in
-// RFC 6241 §7, plus the shared Datastore, Filter, and DataReply types used
-// across multiple operations.
-//
-// Every operation struct carries the NETCONF base namespace in its XMLName tag
-// (lesson L001: namespace is set statically in the struct tag, never at runtime).
-// This ensures xml.Marshal always emits xmlns="urn:ietf:params:xml:ns:netconf:base:1.0"
-// on the operation element.
+// RFC 6241 operation request types and shared types (Datastore, Filter, DataReply).
+
 package netconf
 
 import "encoding/xml"

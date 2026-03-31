@@ -20,7 +20,7 @@
 //
 // Failure inspection:
 //   - Dial errors name the address and the failed step (dial TCP, TLS handshake).
-//   - `go test ./netconf/transport/tls/... -v` prints per-test PASS/FAIL.
+//   - `go test ./... -v` prints per-test PASS/FAIL.
 package tls
 
 import (

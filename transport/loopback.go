@@ -1,11 +1,5 @@
-// Package transport — loopback.go provides an in-process loopback transport
-// pair for testing. Each call to NewLoopback returns a matched (client,
-// server) pair whose byte streams are connected via io.Pipe. Both ends start
-// in EOM (base:1.0) framing and can be upgraded to chunked framing after the
-// hello exchange.
-//
-// The loopback transport satisfies both the Transport and Upgrader interfaces,
-// allowing the Session layer to call Upgrade() on either side independently.
+// Loopback — in-process transport pair for tests.
+
 package transport
 
 import (

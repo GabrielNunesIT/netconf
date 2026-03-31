@@ -10,7 +10,7 @@
 // "urn:ietf:params:xml:ns:yang:ietf-yang-push" (YangPushNS).
 // This is a YANG module namespace URI, NOT a NETCONF capability URN of the form
 // "urn:ietf:params:netconf:capability:…". Do not pass it to netconf.ValidateURN
-// (per P020). Use CapabilityURI to announce the capability in a hello exchange.
+// . Use CapabilityURI to announce the capability in a hello exchange.
 //
 // # YANG-Push Subscription Triggers (RFC 8641 §3)
 //
@@ -39,7 +39,7 @@
 // Types in this package are pure encoding/decoding structs with no runtime state.
 // Failure visibility is through XML marshal/unmarshal errors and go test output.
 //
-//   - go test ./netconf/yangpush/... -v — per-struct round-trip pass/fail
+//   - go test ./... -v — per-struct round-trip pass/fail
 //     with actual marshaled XML printed in failure messages via t.Logf.
 //   - The YangPushNS constant value is testable via:
 //     assert.Equal(t, yangpush.YangPushNS, "urn:ietf:params:xml:ns:yang:ietf-yang-push")
@@ -56,7 +56,7 @@ const YangPushNS = "urn:ietf:params:xml:ns:yang:ietf-yang-push"
 //
 // Note: this is a YANG module namespace URI, not a
 // "urn:ietf:params:netconf:capability:…" URN. Do not pass it to
-// netconf.ValidateURN (per P020).
+// netconf.ValidateURN .
 const CapabilityURI = "urn:ietf:params:xml:ns:yang:ietf-yang-push"
 
 // ── Subscription triggers ─────────────────────────────────────────────────────
@@ -102,7 +102,7 @@ type OnChangeTrigger struct {
 //   - ObservationTime: the time at which the datastore was observed;
 //     xs:dateTime format.
 //   - Datastore:       the NMDA datastore identity URN that was observed.
-//   - Updates:         raw inner XML of the pushed data records (per P003).
+//   - Updates:         raw inner XML of the pushed data records.
 //     The structure follows the YANG schema of the subscribed path.
 type PushUpdate struct {
 	XMLName         xml.Name `xml:"urn:ietf:params:xml:ns:yang:ietf-yang-push push-update"`
@@ -121,7 +121,7 @@ type PushUpdate struct {
 //   - ObservationTime: the time at which the changes were observed.
 //   - Datastore:       the NMDA datastore identity URN.
 //   - Changes:         raw inner XML of the edit records describing the changes
-//     (per P003). Each edit record identifies the target path, operation,
+//    .. Each edit record identifies the target path, operation,
 //     and new value.
 type PushChangeUpdate struct {
 	XMLName         xml.Name `xml:"urn:ietf:params:xml:ns:yang:ietf-yang-push push-change-update"`

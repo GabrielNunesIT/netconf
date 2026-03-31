@@ -17,7 +17,7 @@
 //     handshake, new session, or request subsystem).
 //   - A closed channel yields io.EOF from MsgReader; treat any non-nil error
 //     as a permanent transport failure and close the session.
-//   - `go test ./netconf/transport/ssh/... -v` prints per-test PASS/FAIL.
+//   - `go test ./... -v` prints per-test PASS/FAIL.
 package ssh
 
 import (

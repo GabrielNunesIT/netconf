@@ -16,7 +16,7 @@
 // Failure inspection:
 //   - Dial errors name the address and the failed step (e.g., "tls client: dial
 //     127.0.0.1:6513: <underlying error>").
-//   - `go test ./netconf/transport/tls/... -v` prints per-test PASS/FAIL.
+//   - `go test ./... -v` prints per-test PASS/FAIL.
 package tls
 
 import (

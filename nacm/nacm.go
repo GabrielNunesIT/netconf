@@ -11,7 +11,7 @@
 // This is a YANG module namespace, NOT a NETCONF capability URN of the form
 // "urn:ietf:params:netconf:capability:…", so it must NOT be passed to
 // netconf.ValidateURN. Use CapabilityURI to announce the capability in a
-// NETCONF hello exchange (per P020).
+// NETCONF hello exchange .
 //
 // # Data Model
 //
@@ -39,7 +39,7 @@
 // enforcement function; there is no runtime process or daemon. Failure
 // visibility is through XML marshal/unmarshal errors and go test output.
 //
-//   - go test ./netconf/nacm/... -v — per-struct round-trip pass/fail
+//   - go test ./... -v — per-struct round-trip pass/fail
 //     with actual marshaled XML printed in failure messages via t.Logf.
 //   - The NacmNS constant value is testable via:
 //     assert.Equal(t, nacm.NacmNS, "urn:ietf:params:xml:ns:yang:ietf-netconf-acm")
@@ -56,7 +56,7 @@ const NacmNS = "urn:ietf:params:xml:ns:yang:ietf-netconf-acm"
 //
 // Note: this is a YANG module namespace URI, not a
 // "urn:ietf:params:netconf:capability:…" URN. Do not pass it to
-// netconf.ValidateURN (per P020).
+// netconf.ValidateURN .
 const CapabilityURI = "urn:ietf:params:xml:ns:yang:ietf-netconf-acm"
 
 // Action represents the NACM rule action (RFC 8341 §3.2.6).

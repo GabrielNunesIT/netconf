@@ -1,7 +1,5 @@
-// Package netconf implements the NETCONF protocol (RFC 6241).
-//
-// This file defines the Capability type, RFC 7803 URN validation, base
-// capability constants, and the CapabilitySet helper type.
+// Capability constants, ValidateURN, and CapabilitySet.
+
 package netconf
 
 import (

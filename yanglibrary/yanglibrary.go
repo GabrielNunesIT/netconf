@@ -10,7 +10,7 @@
 // "urn:ietf:params:xml:ns:yang:ietf-yang-library" (YangLibraryNS).
 // This is a YANG module namespace URI, NOT a NETCONF capability URN of the form
 // "urn:ietf:params:netconf:capability:…". Do not pass it to netconf.ValidateURN
-// (per P020). Use CapabilityURI to announce the capability in a hello exchange.
+// . Use CapabilityURI to announce the capability in a hello exchange.
 //
 // # Data Model
 //
@@ -28,7 +28,7 @@
 // Types in this package are pure encoding/decoding structs with no runtime state.
 // Failure visibility is through XML marshal/unmarshal errors and go test output.
 //
-//   - go test ./netconf/yanglibrary/... -v — per-struct round-trip pass/fail
+//   - go test ./... -v — per-struct round-trip pass/fail
 //     with actual marshaled XML printed in failure messages via t.Logf.
 //   - The YangLibraryNS constant is testable via:
 //     assert.Equal(t, yanglibrary.YangLibraryNS, "urn:ietf:params:xml:ns:yang:ietf-yang-library")
@@ -45,7 +45,7 @@ const YangLibraryNS = "urn:ietf:params:xml:ns:yang:ietf-yang-library"
 //
 // Note: this is a YANG module namespace URI, not a
 // "urn:ietf:params:netconf:capability:…" URN. Do not pass it to
-// netconf.ValidateURN (per P020).
+// netconf.ValidateURN .
 const CapabilityURI = "urn:ietf:params:xml:ns:yang:ietf-yang-library"
 
 // YangLibrary is the top-level /yang-library container (RFC 8525 §2.1).

@@ -1,13 +1,5 @@
-// Package transport defines the Transport interface that decouples NETCONF
-// session logic from the underlying framing and connection mechanism.
-//
-// Implementations include:
-//   - Loopback (in-process io.Pipe pair, for tests)
-//   - SSH (netconf subsystem channel, T04)
-//
-// Framers (EOM and chunked) sit between the Transport and the wire and handle
-// the RFC 6242 encoding transparently: callers read and write complete
-// unframed NETCONF messages.
+// Transport interface and Upgrader interface.
+
 package transport
 
 import "io"

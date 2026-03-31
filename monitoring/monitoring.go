@@ -23,9 +23,9 @@
 // runtime process or daemon. Failure visibility is through XML marshal/unmarshal
 // errors and go test output.
 //
-//   - go test ./netconf/monitoring/... -v — per-struct round-trip pass/fail
+//   - go test ./... -v — per-struct round-trip pass/fail
 //     with actual marshaled XML printed in failure messages via t.Logf.
-//   - go test ./netconf/client/... -run TestClient_GetSchema -v — tests the
+//   - go test ./... -run TestClient_GetSchema -v — tests the
 //     GetSchema typed method end-to-end.
 //   - A missing xmlns attribute in marshal output causes assert.Contains
 //     failures with the actual XML printed. An unmarshal field mismatch shows

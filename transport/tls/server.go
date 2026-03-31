@@ -14,7 +14,7 @@
 // Failure inspection:
 //   - `Listener.Accept` blocks until a client completes the TLS handshake or
 //     an error occurs; the error value names the failed step.
-//   - `go test ./netconf/transport/tls/... -v` prints per-test PASS/FAIL.
+//   - `go test ./... -v` prints per-test PASS/FAIL.
 package tls
 
 import (
@@ -199,7 +199,7 @@ func DialCallHome(addr string, config *cryptotls.Config) (*ServerTransport, erro
 	tlsConn := cryptotls.Server(conn, config)
 
 	// Explicit Handshake() before ConnectionState() — required to populate
-	// PeerCertificates (L010).
+	// PeerCertificates (Go's TLS library only populates them after the handshake).
 	if err := tlsConn.Handshake(); err != nil {
 		_ = tlsConn.Close()
 		return nil, fmt.Errorf("tls server: call home: handshake: %w", err)

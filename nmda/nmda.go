@@ -11,7 +11,7 @@
 // "urn:ietf:params:xml:ns:yang:ietf-netconf-nmda" (NmdaNS).
 // This is a YANG module namespace URI, NOT a NETCONF capability URN of the form
 // "urn:ietf:params:netconf:capability:…". Do not pass it to netconf.ValidateURN
-// (per P020). Use CapabilityURI to announce the capability in a hello exchange.
+// . Use CapabilityURI to announce the capability in a hello exchange.
 //
 // # NMDA Datastores
 //
@@ -36,7 +36,7 @@
 // Types in this package are pure encoding/decoding structs with no runtime state.
 // Failure visibility is through XML marshal/unmarshal errors and go test output.
 //
-//   - go test ./netconf/nmda/... -v — per-struct round-trip pass/fail
+//   - go test ./... -v — per-struct round-trip pass/fail
 //     with actual marshaled XML printed in failure messages via t.Logf.
 //   - The NmdaNS constant value is testable via:
 //     assert.Equal(t, nmda.NmdaNS, "urn:ietf:params:xml:ns:yang:ietf-netconf-nmda")
@@ -53,7 +53,7 @@ const NmdaNS = "urn:ietf:params:xml:ns:yang:ietf-netconf-nmda"
 //
 // Note: this is a YANG module namespace URI, not a
 // "urn:ietf:params:netconf:capability:…" URN. Do not pass it to
-// netconf.ValidateURN (per P020).
+// netconf.ValidateURN .
 const CapabilityURI = "urn:ietf:params:xml:ns:yang:ietf-netconf-nmda"
 
 // NMDA datastore identity URNs (RFC 8342 §8).
@@ -94,7 +94,7 @@ type DatastoreRef struct {
 //
 //   - Type:    "subtree" or "xpath"; omitted for subtree filters.
 //   - Select:  XPath expression (when Type is "xpath").
-//   - Content: raw inner XML of the subtree filter criteria (per P003).
+//   - Content: raw inner XML of the subtree filter criteria.
 type Filter struct {
 	Type    string `xml:"type,attr,omitempty"`
 	Select  string `xml:"select,attr,omitempty"`
@@ -130,7 +130,7 @@ type GetData struct {
 //   - Datastore:         the NMDA datastore to edit; must be a writable datastore
 //     (running, candidate, or startup).
 //   - DefaultOperation:  default edit operation ("merge", "replace", "none").
-//   - Config:            raw inner XML of the configuration to apply (per P003).
+//   - Config:            raw inner XML of the configuration to apply.
 //     The content follows the same edit operation semantics as <edit-config>.
 type EditData struct {
 	XMLName          xml.Name     `xml:"urn:ietf:params:xml:ns:yang:ietf-netconf-nmda edit-data"`

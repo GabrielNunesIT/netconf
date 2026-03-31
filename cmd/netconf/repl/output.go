@@ -16,7 +16,7 @@ import (
 //   - Single-root XML: indented directly via xml.Encoder with Indent set.
 //   - Multi-sibling innerxml (e.g. multiple <rpc-error> siblings, or
 //     a <data> element followed by a text node): wrapped in a synthetic
-//     <wrapper>…</wrapper> root before indenting (per P012), then the
+//     <wrapper>…</wrapper> root before indenting, then the
 //     wrapper element and its tags are stripped from the output.
 //
 // If both attempts fail (malformed XML), the raw bytes are returned as-is

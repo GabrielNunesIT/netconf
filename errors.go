@@ -1,8 +1,5 @@
-// Package netconf implements the NETCONF protocol (RFC 6241).
-//
-// This file defines the rpc-error model described in RFC 6241 §4.3.
-// RPCError is the canonical error type for all NETCONF operation responses;
-// ParseRPCErrors extracts one or more rpc-error elements from an RPCReply.
+// RPCError and ParseRPCErrors — structured NETCONF error model (RFC 6241 §4.3).
+
 package netconf
 
 import (

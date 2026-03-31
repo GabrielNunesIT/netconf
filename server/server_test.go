@@ -594,3 +594,187 @@ func TestServer_ContextCancel(t *testing.T) {
 		t.Fatal("Serve did not return after context cancellation and transport close")
 	}
 }
+
+// ── StreamHandler tests ───────────────────────────────────────────────────────
+
+// echoStreamHandler implements both Handler and StreamHandler.
+// HandleStream decodes the operation element via DecodeElement and
+// captures the inner bytes for test assertions.
+type echoStreamHandler struct {
+	decodedOp chan []byte
+	replyBody []byte
+}
+
+func (h *echoStreamHandler) Handle(_ context.Context, _ *netconf.Session, _ *netconf.RPC) ([]byte, error) {
+	return h.replyBody, nil
+}
+
+func (h *echoStreamHandler) HandleStream(_ context.Context, _ *netconf.Session, _ *netconf.RPC, dec *xml.Decoder, opStart xml.StartElement) ([]byte, error) {
+	type opCapture struct {
+		Inner []byte `xml:",innerxml"`
+	}
+	var cap opCapture
+	if err := dec.DecodeElement(&cap, &opStart); err != nil {
+		return nil, err
+	}
+	select {
+	case h.decodedOp <- cap.Inner:
+	default:
+	}
+	return h.replyBody, nil
+}
+
+// skipStreamHandler implements StreamHandler using dec.Skip() — the zero-copy
+// path for handlers that don't need the op body.
+type skipStreamHandler struct {
+	called chan struct{}
+	reply  []byte
+}
+
+func (h *skipStreamHandler) Handle(_ context.Context, _ *netconf.Session, _ *netconf.RPC) ([]byte, error) {
+	return h.reply, nil
+}
+
+func (h *skipStreamHandler) HandleStream(_ context.Context, _ *netconf.Session, _ *netconf.RPC, dec *xml.Decoder, opStart xml.StartElement) ([]byte, error) {
+	if err := dec.Skip(); err != nil {
+		return nil, err
+	}
+	select {
+	case h.called <- struct{}{}:
+	default:
+	}
+	return h.reply, nil
+}
+
+// TestServer_StreamHandler_DecodeElement proves that a handler implementing
+// StreamHandler receives the decoder positioned at the operation start element
+// and can decode the body via DecodeElement. The rpc.Body field is nil (no
+// materialisation); the reply body is returned unchanged.
+func TestServer_StreamHandler_DecodeElement(t *testing.T) {
+	t.Parallel()
+	clientSess, serverSess := newTestPair(t)
+
+	const replyBody = `<data><ok/></data>`
+	h := &echoStreamHandler{
+		decodedOp: make(chan []byte, 1),
+		replyBody: []byte(replyBody),
+	}
+
+	srv := server.NewServer()
+	srv.RegisterHandler("get-config", h)
+	serveDone := runServe(t, srv, serverSess)
+
+	sendRPC(t, clientSess, "10", []byte(`<get-config xmlns="urn:ietf:params:xml:ns:netconf:base:1.0"><source><running/></source></get-config>`))
+
+	reply := recvReply(t, clientSess)
+	assert.Equal(t, "10", reply.MessageID, "message-id must echo back")
+	assert.Contains(t, string(reply.Body), replyBody, "reply body must be the handler-supplied body")
+	assert.Nil(t, reply.Ok, "ok must not be set when body is provided")
+
+	// HandleStream must have captured the inner content of <get-config>.
+	select {
+	case inner := <-h.decodedOp:
+		assert.Contains(t, string(inner), "running",
+			"decoded op inner must contain the <source><running/></source> content")
+	default:
+		t.Fatal("HandleStream was not called — handler was not dispatched via StreamHandler interface")
+	}
+
+	sendCloseSession(t, clientSess, serveDone)
+}
+
+// TestServer_StreamHandler_Skip proves that a StreamHandler that calls
+// dec.Skip() (the zero-copy path) works correctly and does not corrupt
+// subsequent messages on the same session.
+func TestServer_StreamHandler_Skip(t *testing.T) {
+	t.Parallel()
+	clientSess, serverSess := newTestPair(t)
+
+	const replyBody = `<data><skipped/></data>`
+	h := &skipStreamHandler{
+		called: make(chan struct{}, 1),
+		reply:  []byte(replyBody),
+	}
+
+	srv := server.NewServer()
+	srv.RegisterHandler("get-config", h)
+	srv.RegisterHandler("lock", server.HandlerFunc(func(_ context.Context, _ *netconf.Session, _ *netconf.RPC) ([]byte, error) {
+		return nil, nil
+	}))
+	serveDone := runServe(t, srv, serverSess)
+
+	// First RPC — handled via StreamHandler + dec.Skip().
+	sendRPC(t, clientSess, "11", []byte(`<get-config xmlns="urn:ietf:params:xml:ns:netconf:base:1.0"><source><running/></source></get-config>`))
+	reply := recvReply(t, clientSess)
+	assert.Equal(t, "11", reply.MessageID)
+	assert.Contains(t, string(reply.Body), "skipped", "reply must contain handler body")
+
+	select {
+	case <-h.called:
+		// HandleStream + dec.Skip was invoked.
+	default:
+		t.Fatal("HandleStream with dec.Skip was not called")
+	}
+
+	// Second RPC — proves the session is not corrupted after Skip.
+	sendRPC(t, clientSess, "12", []byte(`<lock xmlns="urn:ietf:params:xml:ns:netconf:base:1.0"><target><running/></target></lock>`))
+	reply2 := recvReply(t, clientSess)
+	assert.Equal(t, "12", reply2.MessageID, "second RPC after Skip must be dispatched correctly")
+	assert.NotNil(t, reply2.Ok, "lock reply must be ok")
+
+	sendCloseSession(t, clientSess, serveDone)
+}
+
+// TestServer_StreamHandler_MessageID proves that the message-id extracted by
+// parseRPCHeader is correctly echoed in the reply for a StreamHandler dispatch.
+func TestServer_StreamHandler_MessageID(t *testing.T) {
+	t.Parallel()
+	clientSess, serverSess := newTestPair(t)
+
+	h := &skipStreamHandler{called: make(chan struct{}, 1), reply: []byte(`<data/>`)}
+	srv := server.NewServer()
+	srv.RegisterHandler("get-config", h)
+	serveDone := runServe(t, srv, serverSess)
+
+	sendRPC(t, clientSess, "msg-99", []byte(`<get-config xmlns="urn:ietf:params:xml:ns:netconf:base:1.0"><source><running/></source></get-config>`))
+	reply := recvReply(t, clientSess)
+	assert.Equal(t, "msg-99", reply.MessageID,
+		"parseRPCHeader must extract the correct message-id for StreamHandler dispatch")
+
+	sendCloseSession(t, clientSess, serveDone)
+}
+
+// TestServer_StreamHandler_FallsBackToHandler proves that a plain Handler
+// (not implementing StreamHandler) still receives a populated rpc.Body after
+// the Serve() streaming refactor. marshalOpElement must reconstruct the full
+// operation element including namespace.
+func TestServer_StreamHandler_FallsBackToHandler(t *testing.T) {
+	t.Parallel()
+	clientSess, serverSess := newTestPair(t)
+
+	var capturedBody []byte
+	srv := server.NewServer()
+	srv.RegisterHandler("get-config", server.HandlerFunc(
+		func(_ context.Context, _ *netconf.Session, rpc *netconf.RPC) ([]byte, error) {
+			capturedBody = append([]byte{}, rpc.Body...)
+			return []byte(`<data><config/></data>`), nil
+		},
+	))
+	serveDone := runServe(t, srv, serverSess)
+
+	sendRPC(t, clientSess, "20", []byte(`<get-config xmlns="urn:ietf:params:xml:ns:netconf:base:1.0"><source><running/></source></get-config>`))
+	reply := recvReply(t, clientSess)
+	assert.Equal(t, "20", reply.MessageID)
+	assert.Contains(t, string(reply.Body), "<config/>")
+
+	// rpc.Body must be populated by marshalOpElement — full element with namespace.
+	require.NotEmpty(t, capturedBody, "conventional Handler must receive non-empty rpc.Body")
+	assert.Contains(t, string(capturedBody), "get-config",
+		"rpc.Body must contain the reconstructed operation element name")
+	assert.Contains(t, string(capturedBody), "running",
+		"rpc.Body must contain the operation body content")
+	assert.Contains(t, string(capturedBody), "urn:ietf:params:xml:ns:netconf:base:1.0",
+		"rpc.Body must carry the NETCONF namespace from the operation element")
+
+	sendCloseSession(t, clientSess, serveDone)
+}

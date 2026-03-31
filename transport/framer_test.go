@@ -453,3 +453,76 @@ func TestUpgrade_PanicsIfCalledTwice(t *testing.T) {
 		framer.Upgrade()
 	}, "second Upgrade must panic")
 }
+
+// ── Benchmarks ────────────────────────────────────────────────────────────────
+
+// BenchmarkChunkedReader_4KB measures the streaming chunkedReader path for a
+// typical 4KB NETCONF message (single chunk). This is the primary signal for
+// the M006 streaming reader improvement vs the old bytes.Buffer accumulation.
+func BenchmarkChunkedReader_4KB(b *testing.B) {
+	b.ReportAllocs()
+
+	body := strings.Repeat("A", 4096)
+	// Pre-build the chunked wire encoding: \n#4096\nAAAA...\n##\n
+	wire := "\n#4096\n" + body + "\n##\n"
+
+	for b.Loop() {
+		rw := newReadOnlyRW([]byte(wire))
+		f := transport.NewFramer(rw)
+		f.Upgrade()
+		rc, err := f.MsgReader()
+		if err != nil {
+			b.Fatal(err)
+		}
+		if _, err := io.Copy(io.Discard, rc); err != nil {
+			b.Fatal(err)
+		}
+		rc.Close()
+	}
+}
+
+// BenchmarkChunkedReader_1MB measures the streaming chunkedReader for a 1MB
+// payload — the key allocation savings target for M006.
+func BenchmarkChunkedReader_1MB(b *testing.B) {
+	b.ReportAllocs()
+
+	body := strings.Repeat("A", 1024*1024)
+	size := len(body)
+	wire := fmt.Sprintf("\n#%d\n", size) + body + "\n##\n"
+
+	for b.Loop() {
+		rw := newReadOnlyRW([]byte(wire))
+		f := transport.NewFramer(rw)
+		f.Upgrade()
+		rc, err := f.MsgReader()
+		if err != nil {
+			b.Fatal(err)
+		}
+		if _, err := io.Copy(io.Discard, rc); err != nil {
+			b.Fatal(err)
+		}
+		rc.Close()
+	}
+}
+
+// BenchmarkEOMReader_4KB provides an EOM baseline for comparison with the
+// chunked streaming reader.
+func BenchmarkEOMReader_4KB(b *testing.B) {
+	b.ReportAllocs()
+
+	body := strings.Repeat("A", 4096)
+	wire := body + "]]>]]>"
+
+	for b.Loop() {
+		rw := newReadOnlyRW([]byte(wire))
+		f := transport.NewFramer(rw)
+		rc, err := f.MsgReader()
+		if err != nil {
+			b.Fatal(err)
+		}
+		if _, err := io.Copy(io.Discard, rc); err != nil {
+			b.Fatal(err)
+		}
+		rc.Close()
+	}
+}

@@ -1,25 +1,5 @@
-// Package transport provides framing and transport implementations for the
-// NETCONF protocol.
-//
-// Framing is the lowest layer of NETCONF message exchange. This file
-// implements two framing modes required by RFC 6242:
-//
-//   - End-of-message (EOM) framing: base:1.0. Each complete NETCONF message
-//     is terminated by the sentinel string "]]>]]>". Used before and during
-//     the hello exchange.
-//   - Chunked framing: base:1.1 (RFC 6242 §4.2). Messages are encoded as one
-//     or more chunks prefixed by "\n#<size>\n" and terminated by "\n##\n".
-//     Used after both peers have advertised base:1.1 in their hello messages.
-//
-// A Framer wraps any io.ReadWriter (a net.Conn, an io.Pipe pair, an SSH
-// channel, etc.) and exposes MsgReader/MsgWriter matching the Transport
-// interface contract. Callers never see the framing bytes; they read and write
-// complete, unframed NETCONF messages.
-//
-// Observability: every non-nil error returned by MsgReader or MsgWriter
-// includes descriptive context (e.g. "eom: read delimiter", "chunked: chunk
-// header", "chunked: chunk size 0 is invalid"). Callers log these before
-// tearing down the session. No error is silently swallowed.
+// Framer — EOM and chunked framing for RFC 6242.
+
 package transport
 
 import (
@@ -47,6 +27,26 @@ const (
 	modeEOM     framingMode = iota // base:1.0 end-of-message framing
 	modeChunked                    // base:1.1 chunked framing
 )
+
+// bufPool pools bytes.Buffer objects to reduce per-message allocations in the
+// EOM read path and both write paths. Callers must Reset() before use.
+var bufPool = sync.Pool{
+	New: func() any { return new(bytes.Buffer) },
+}
+
+func getBuf() *bytes.Buffer {
+	b := bufPool.Get().(*bytes.Buffer)
+	b.Reset()
+	return b
+}
+
+func putBuf(b *bytes.Buffer) {
+	// Discard large buffers to avoid keeping multi-MB slices alive in the pool.
+	if b.Cap() > 2*1024*1024 {
+		return
+	}
+	bufPool.Put(b)
+}
 
 // Framer implements the Transport interface, adding Upgrade() to satisfy the
 // Upgrader interface. It wraps an io.ReadWriter and manages all framing.
@@ -108,21 +108,21 @@ func (f *Framer) MsgReader() (io.ReadCloser, error) {
 
 // eomReader reads from the buffered stream until the "]]>]]>" delimiter is
 // found, then returns the message body (excluding the delimiter) as a
-// ReadCloser backed by a bytes.Buffer.
+// ReadCloser backed by a bytes.Reader. Uses a pooled bytes.Buffer for
+// accumulation.
 //
 // The delimiter may span multiple underlying reads; bufio.Reader handles
 // the buffering so we scan the accumulated bytes correctly.
 func (f *Framer) eomReader() (io.ReadCloser, error) {
-	var buf bytes.Buffer
+	buf := getBuf()
 	delim := []byte(eomDelimiter)
 
 	for {
-		// ReadString reads until '\x3e' ('>') which is the last byte of
-		// ]]>]]>. We read one byte at a time conceptually, but bufio
-		// makes this efficient.
 		b, err := f.br.ReadByte()
 		if err != nil {
-			if errors.Is(err, io.EOF) && buf.Len() > 0 {
+			hadData := buf.Len() > 0
+			putBuf(buf)
+			if errors.Is(err, io.EOF) && hadData {
 				return nil, errors.New("eom: unexpected EOF before ]]>]]> delimiter")
 			}
 			return nil, fmt.Errorf("eom: read: %w", err)
@@ -133,105 +133,165 @@ func (f *Framer) eomReader() (io.ReadCloser, error) {
 		if buf.Len() >= len(delim) {
 			tail := buf.Bytes()[buf.Len()-len(delim):]
 			if bytes.Equal(tail, delim) {
-				// Strip the delimiter and return the message body.
+				// Copy the message body (excluding delimiter) to a fresh slice,
+				// then return the pooled buffer immediately.
 				msg := make([]byte, buf.Len()-len(delim))
 				copy(msg, buf.Bytes())
+				putBuf(buf)
 				return io.NopCloser(bytes.NewReader(msg)), nil
 			}
 		}
 	}
 }
 
-// chunkedReader reads RFC 6242 §4.2 chunked framing:
+// chunkedReader returns a streaming ReadCloser that reads RFC 6242 §4.2
+// chunked framing directly from the buffered stream without accumulating
+// all chunk data into an intermediate buffer.
 //
-//	chunk = "\n#" chunk-size "\n" chunk-data
-//	chunk-end = "\n##\n"
+// The returned reader reads chunk-by-chunk: each Read call draws bytes from
+// the current chunk in the bufio.Reader. When a chunk is exhausted, the next
+// chunk header is parsed transparently. After the end-of-chunks marker is
+// consumed, Read returns io.EOF.
 //
-// It accumulates all chunk data until the end-of-chunks marker, then returns
-// the concatenated message body as a ReadCloser.
+// The caller must Close the reader before calling MsgReader again. Close
+// drains any unread bytes so the stream position is correct for the next
+// message.
 func (f *Framer) chunkedReader() (io.ReadCloser, error) {
-	var msg bytes.Buffer
-
-	for {
-		// Read the chunk header line, which must be "\n#<digits>\n" or
-		// "\n##\n" for end-of-chunks.
-		// We expect the first character to be '\n'.
-		nl, err := f.br.ReadByte()
-		if err != nil {
-			return nil, fmt.Errorf("chunked: read chunk header start: %w", err)
-		}
-		if nl != '\n' {
-			return nil, fmt.Errorf("chunked: expected '\\n' at chunk start, got %q", nl)
-		}
-
-		// Read the '#' marker.
-		hash, err := f.br.ReadByte()
-		if err != nil {
-			return nil, fmt.Errorf("chunked: read '#' marker: %w", err)
-		}
-		if hash != '#' {
-			return nil, fmt.Errorf("chunked: expected '#' after '\\n', got %q", hash)
-		}
-
-		// Peek to decide: end-of-chunks ("\n##\n") or chunk size.
-		next, err := f.br.ReadByte()
-		if err != nil {
-			return nil, fmt.Errorf("chunked: read after '#': %w", err)
-		}
-
-		if next == '#' {
-			// End-of-chunks: consume the trailing '\n'.
-			trailingNL, err := f.br.ReadByte()
-			if err != nil {
-				return nil, fmt.Errorf("chunked: read trailing '\\n' after '##': %w", err)
-			}
-			if trailingNL != '\n' {
-				return nil, fmt.Errorf("chunked: expected '\\n' after '\\n##', got %q", trailingNL)
-			}
-			// Return accumulated message.
-			return io.NopCloser(bytes.NewReader(msg.Bytes())), nil
-		}
-
-		// Parse chunk size: next is the first digit; read the rest until '\n'.
-		if next < '0' || next > '9' {
-			return nil, fmt.Errorf("chunked: chunk header: expected digit after '#', got %q", next)
-		}
-		var sizeBuf []byte
-		sizeBuf = append(sizeBuf, next)
-		for {
-			c, err := f.br.ReadByte()
-			if err != nil {
-				return nil, fmt.Errorf("chunked: read chunk size: %w", err)
-			}
-			if c == '\n' {
-				break
-			}
-			if c < '0' || c > '9' {
-				return nil, fmt.Errorf("chunked: chunk size contains non-digit %q", c)
-			}
-			sizeBuf = append(sizeBuf, c)
-		}
-		sizeStr := string(sizeBuf)
-
-		// Validate the chunk size.
-		size64, err := strconv.ParseUint(sizeStr, 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("chunked: chunk size %q is not a valid uint: %w", sizeStr, err)
-		}
-		if size64 == 0 {
-			return nil, errors.New("chunked: chunk size 0 is invalid (RFC 6242 §4.2 requires size ≥ 1)")
-		}
-		if size64 > maxChunkSize {
-			return nil, fmt.Errorf("chunked: chunk size %d exceeds maximum %d", size64, maxChunkSize)
-		}
-
-		// Read exactly size64 bytes of chunk data.
-		chunkData := make([]byte, size64)
-		if _, err := io.ReadFull(f.br, chunkData); err != nil {
-			return nil, fmt.Errorf("chunked: read chunk data (%d bytes): %w", size64, err)
-		}
-		msg.Write(chunkData)
+	// Read the first chunk header eagerly so that framing errors surface at
+	// MsgReader time (consistent with eomReader behaviour) rather than at the
+	// first Read call.
+	size, end, err := readChunkHeader(f.br)
+	if err != nil {
+		return nil, err
 	}
+	r := &chunkedStreamReader{br: f.br}
+	if end {
+		// Empty message (end-of-chunks immediately) — return a closed reader.
+		r.done = true
+	} else {
+		r.remaining = size
+	}
+	return r, nil
+}
+
+// chunkedStreamReader is an io.ReadCloser that reads RFC 6242 chunked data
+// directly from a bufio.Reader without intermediate buffering.
+type chunkedStreamReader struct {
+	br        *bufio.Reader
+	remaining int64 // bytes remaining in the current chunk; 0 means fetch next header
+	done      bool  // true after the end-of-chunks marker has been consumed
+}
+
+// Read reads up to len(p) bytes from the current chunk. When the current chunk
+// is exhausted it transparently reads the next chunk header. Returns io.EOF
+// after the end-of-chunks marker.
+func (r *chunkedStreamReader) Read(p []byte) (int, error) {
+	if r.done {
+		return 0, io.EOF
+	}
+
+	// Advance to the next chunk header when the current chunk is empty.
+	for r.remaining == 0 {
+		size, end, err := readChunkHeader(r.br)
+		if err != nil {
+			return 0, err
+		}
+		if end {
+			r.done = true
+			return 0, io.EOF
+		}
+		r.remaining = size
+	}
+
+	// Read up to remaining bytes from the current chunk.
+	toRead := int64(len(p))
+	if toRead > r.remaining {
+		toRead = r.remaining
+	}
+	n, err := r.br.Read(p[:toRead])
+	r.remaining -= int64(n)
+	return n, err
+}
+
+// Close drains any unread bytes in the current and remaining chunks so that
+// the next MsgReader call finds the stream positioned at the start of the
+// next message. Close is idempotent.
+func (r *chunkedStreamReader) Close() error {
+	if r.done {
+		return nil
+	}
+	_, err := io.Copy(io.Discard, r)
+	return err
+}
+
+// readChunkHeader reads one RFC 6242 chunk header from br.
+//
+// A chunk header is either:
+//   - "\n#<size>\n"  — returns (size, false, nil)
+//   - "\n##\n"       — returns (0, true, nil)  [end-of-chunks]
+func readChunkHeader(br *bufio.Reader) (size int64, end bool, err error) {
+	nl, err := br.ReadByte()
+	if err != nil {
+		return 0, false, fmt.Errorf("chunked: read chunk header start: %w", err)
+	}
+	if nl != '\n' {
+		return 0, false, fmt.Errorf("chunked: expected '\\n' at chunk start, got %q", nl)
+	}
+
+	hash, err := br.ReadByte()
+	if err != nil {
+		return 0, false, fmt.Errorf("chunked: read '#' marker: %w", err)
+	}
+	if hash != '#' {
+		return 0, false, fmt.Errorf("chunked: expected '#' after '\\n', got %q", hash)
+	}
+
+	next, err := br.ReadByte()
+	if err != nil {
+		return 0, false, fmt.Errorf("chunked: read after '#': %w", err)
+	}
+
+	if next == '#' {
+		// End-of-chunks: consume the trailing '\n'.
+		trailingNL, err := br.ReadByte()
+		if err != nil {
+			return 0, false, fmt.Errorf("chunked: read trailing '\\n' after '##': %w", err)
+		}
+		if trailingNL != '\n' {
+			return 0, false, fmt.Errorf("chunked: expected '\\n' after '\\n##', got %q", trailingNL)
+		}
+		return 0, true, nil
+	}
+
+	if next < '0' || next > '9' {
+		return 0, false, fmt.Errorf("chunked: chunk header: expected digit after '#', got %q", next)
+	}
+	sizeBuf := []byte{next}
+	for {
+		c, err := br.ReadByte()
+		if err != nil {
+			return 0, false, fmt.Errorf("chunked: read chunk size: %w", err)
+		}
+		if c == '\n' {
+			break
+		}
+		if c < '0' || c > '9' {
+			return 0, false, fmt.Errorf("chunked: chunk size contains non-digit %q", c)
+		}
+		sizeBuf = append(sizeBuf, c)
+	}
+
+	size64, err := strconv.ParseUint(string(sizeBuf), 10, 64)
+	if err != nil {
+		return 0, false, fmt.Errorf("chunked: chunk size %q is not a valid uint: %w", string(sizeBuf), err)
+	}
+	if size64 == 0 {
+		return 0, false, errors.New("chunked: chunk size 0 is invalid (RFC 6242 §4.2 requires size ≥ 1)")
+	}
+	if size64 > maxChunkSize {
+		return 0, false, fmt.Errorf("chunked: chunk size %d exceeds maximum %d", size64, maxChunkSize)
+	}
+	return int64(size64), false, nil
 }
 
 // ── MsgWriter ────────────────────────────────────────────────────────────────
@@ -241,56 +301,57 @@ func (f *Framer) chunkedReader() (io.ReadCloser, error) {
 func (f *Framer) MsgWriter() (io.WriteCloser, error) {
 	switch f.currentMode() {
 	case modeEOM:
-		return &eomWriter{w: f.rw}, nil
+		return &eomWriter{w: f.rw, buf: getBuf()}, nil
 	case modeChunked:
-		return &chunkedWriter{w: f.rw}, nil
+		return &chunkedWriter{w: f.rw, buf: getBuf()}, nil
 	default:
 		return nil, fmt.Errorf("framer: unknown framing mode %d", f.currentMode())
 	}
 }
 
-// eomWriter buffers the message body. On Close it writes body + "]]>]]>" to
-// the underlying writer.
+// eomWriter buffers the message body using a pooled bytes.Buffer. On Close it
+// writes body + "]]>]]>" to the underlying writer and returns the buffer to
+// the pool.
 type eomWriter struct {
 	w   io.Writer
-	buf bytes.Buffer
+	buf *bytes.Buffer // from bufPool
 }
 
 func (w *eomWriter) Write(p []byte) (int, error) {
 	return w.buf.Write(p)
 }
 
-// Close frames the accumulated body with the EOM delimiter and flushes it.
+// Close frames the accumulated body with the EOM delimiter, flushes it, and
+// returns the buffer to the pool.
 func (w *eomWriter) Close() error {
 	w.buf.WriteString(eomDelimiter)
 	_, err := w.w.Write(w.buf.Bytes())
+	putBuf(w.buf)
+	w.buf = nil
 	if err != nil {
 		return fmt.Errorf("eom: write message+delimiter: %w", err)
 	}
 	return nil
 }
 
-// chunkedWriter buffers the message body. On Close it encodes and writes the
-// message as a single chunk followed by the end-of-chunks marker.
+// chunkedWriter buffers the message body using a pooled bytes.Buffer. On Close
+// it encodes and writes the message as a single chunk followed by the
+// end-of-chunks marker, then returns the buffer to the pool.
 //
 // RFC 6242 §4.2 grammar (simplified for single-chunk messages):
 //
 //	"\n#" chunk-size "\n" chunk-data "\n##\n"
-//
-// The chunk-size must be > 0. If the message body is empty, we send
-// "\n##\n" (end-of-chunks only, zero chunks), which is technically valid
-// per the grammar (zero occurrences of chunk is allowed by *OCTET rule).
-// In practice NETCONF messages are never empty, but we handle it gracefully.
 type chunkedWriter struct {
 	w   io.Writer
-	buf bytes.Buffer
+	buf *bytes.Buffer // from bufPool
 }
 
 func (w *chunkedWriter) Write(p []byte) (int, error) {
 	return w.buf.Write(p)
 }
 
-// Close encodes the buffered body as chunked framing and flushes.
+// Close encodes the buffered body as chunked framing, flushes, and returns the
+// buffer to the pool.
 func (w *chunkedWriter) Close() error {
 	var out strings.Builder
 
@@ -303,6 +364,9 @@ func (w *chunkedWriter) Close() error {
 	}
 	// End-of-chunks marker.
 	out.WriteString("\n##\n")
+
+	putBuf(w.buf)
+	w.buf = nil
 
 	_, err := io.WriteString(w.w, out.String())
 	if err != nil {

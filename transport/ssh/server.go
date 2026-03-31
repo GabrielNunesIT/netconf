@@ -16,7 +16,7 @@
 // Failure inspection:
 //   - `Listener.Accept` blocks until a client opens a netconf subsystem or
 //     an error occurs; the error value names the failed step.
-//   - `go test ./netconf/transport/ssh/... -v` prints per-test PASS/FAIL.
+//   - `go test ./... -v` prints per-test PASS/FAIL.
 //   - Any SSH connection that fails the handshake is logged in the goroutine
 //     and discarded; Accept is not unblocked by handshake failures (they are
 //     background noise on a server).

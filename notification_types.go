@@ -1,15 +1,10 @@
-// Package netconf implements the NETCONF protocol (RFC 6241).
-//
-// This file defines Go struct types for the 5 standard NETCONF notification
-// body types specified in RFC 6470 (ietf-netconf-notifications YANG module).
-// These types let callers unmarshal the body of a received [Notification] into
-// a concrete, typed value.
+// RFC 6470 notification body types (ietf-netconf-notifications YANG module).
 //
 // # Decoding Notification.Body
 //
 // [Notification.Body] uses xml:",innerxml" which, combined with the EventTime
-// named child (see L008), means Body will contain both the <eventTime> bytes
-// and the notification-specific element as sibling nodes. Calling xml.Unmarshal
+// named child, means Body will contain both the <eventTime> bytes and the
+// notification-specific element as sibling nodes. Calling xml.Unmarshal
 // directly on Body will therefore fail because xml.Unmarshal expects a single
 // root element.
 //
@@ -22,8 +17,7 @@
 //	}
 //	if err := xml.Unmarshal(wrapped, &wrapper); err != nil { … }
 //	cc = wrapper.CC
-//
-// This synthetic-wrapper pattern is also documented in KNOWLEDGE.md as P012.
+
 package netconf
 
 import "encoding/xml"

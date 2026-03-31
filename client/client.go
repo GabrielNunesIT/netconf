@@ -32,16 +32,15 @@
 //     text "decode DataReply" — distinguishable from RPC-level errors.
 //   - Dial errors chain ssh.Dial / ClientSession / NewClient steps, so the
 //     failing layer is always named in the error string.
-//   - go test ./netconf/client/... -run TestClient_RPCError -v shows the
+//   - go test ./... -run TestClient_RPCError -v shows the
 //     full rpc-error propagation path through the typed method layer.
-//   - go test ./netconf/client/... -run TestClient_SSHLoopback -v proves
+//   - go test ./... -run TestClient_SSHLoopback -v proves
 //     the full TCP→SSH→NETCONF hello→GetConfig→DataReply stack.
-//   - go test ./netconf/client/... -run TestClient_TLSLoopback -v proves
+//   - go test ./... -run TestClient_TLSLoopback -v proves
 //     the full TCP→TLS→NETCONF hello→GetConfig→DataReply stack.
 package client
 
 import (
-	"bytes"
 	"context"
 	cryptotls "crypto/tls"
 	"encoding/xml"
@@ -106,10 +105,15 @@ func NewClient(sess *netconf.Session) *Client {
 //
 // It exits when the transport returns an error (including io.EOF on close).
 // When it exits, notifCh is closed so receivers can range over it.
+//
+// Each message is decoded in a single pass without materialising an
+// intermediate []byte: RecvStream returns the framing-layer reader directly
+// and the xml.Decoder reads from it, eliminating the io.ReadAll copy that
+// Recv would perform.
 func (c *Client) recvLoop() {
 	defer close(c.notifCh)
 	for {
-		raw, err := c.sess.Recv()
+		rc, err := c.sess.RecvStream()
 		if err != nil {
 			// Transport error or close — drain all pending callers.
 			c.mu.Lock()
@@ -122,27 +126,37 @@ func (c *Client) recvLoop() {
 			return
 		}
 
-		// Peek at the first start element to determine message type.
-		decoder := xml.NewDecoder(bytes.NewReader(raw))
+		// Single-pass decode over the streaming reader: find the first
+		// StartElement, then DecodeElement using the same decoder.
+		// rc must be Closed before the next RecvStream call.
+		decoder := xml.NewDecoder(rc)
 		var startElem xml.StartElement
+		var foundStart bool
 		for {
 			tok, tokErr := decoder.Token()
 			if tokErr != nil {
-				break // malformed — fall through to existing RPCReply path
+				break // malformed — skip this message
 			}
 			if se, ok := tok.(xml.StartElement); ok {
 				startElem = se
+				foundStart = true
 				break
 			}
+		}
+		if !foundStart {
+			_ = rc.Close()
+			continue // no start element → malformed, skip
 		}
 
 		// Route <notification> messages to the notification channel.
 		if startElem.Name.Space == netconf.NotificationNS && startElem.Name.Local == "notification" {
 			var notif netconf.Notification
-			if err := xml.Unmarshal(raw, &notif); err != nil {
+			if err := decoder.DecodeElement(&notif, &startElem); err != nil {
 				// Malformed notification — skip; cannot recover without event-time.
+				_ = rc.Close()
 				continue
 			}
+			_ = rc.Close()
 			// Non-blocking send: drop notification if channel is full to prevent
 			// dispatcher stall. Slow receivers lose notifications (documented trade-off).
 			select {
@@ -153,12 +167,14 @@ func (c *Client) recvLoop() {
 			continue
 		}
 
-		// Route <rpc-reply> messages through the pending-map path (unchanged behavior).
+		// Route <rpc-reply> messages through the pending-map path.
 		var reply netconf.RPCReply
-		if err := xml.Unmarshal(raw, &reply); err != nil {
+		if err := decoder.DecodeElement(&reply, &startElem); err != nil {
 			// Malformed reply — skip; no caller to notify without a message-id.
+			_ = rc.Close()
 			continue
 		}
+		_ = rc.Close()
 
 		c.mu.Lock()
 		ch, ok := c.pending[reply.MessageID]
@@ -490,8 +506,8 @@ func (c *Client) Commit(ctx context.Context, opts *netconf.Commit) error {
 // failure on the reply body surfaces as a wrapped "decode PartialLockReply"
 // error distinguishable from RPC-level errors. Inspection:
 //
-//	go test ./netconf/client/... -run TestClient_PartialLock -v
-//	go test ./netconf/conformance/... -run TestConformance_PartialLock -v
+//	go test ./... -run TestClient_PartialLock -v
+//	go test ./... -run TestConformance_PartialLock -v
 func (c *Client) PartialLock(ctx context.Context, selects []string) (*netconf.PartialLockReply, error) {
 	reply, err := c.Do(ctx, &netconf.PartialLock{Select: selects})
 	if err != nil {
@@ -517,8 +533,8 @@ func (c *Client) PartialLock(ctx context.Context, selects []string) (*netconf.Pa
 // Errors include "client: PartialUnlock:" prefix. Server-side <rpc-error>
 // propagates as netconf.RPCError via errors.As. Inspection:
 //
-//	go test ./netconf/client/... -run TestClient_PartialUnlock -v
-//	go test ./netconf/conformance/... -run TestConformance_PartialUnlock -v
+//	go test ./... -run TestClient_PartialUnlock -v
+//	go test ./... -run TestConformance_PartialUnlock -v
 func (c *Client) PartialUnlock(ctx context.Context, lockID uint32) error {
 	reply, err := c.Do(ctx, &netconf.PartialUnlock{LockID: lockID})
 	if err != nil {
@@ -549,7 +565,7 @@ func (c *Client) PartialUnlock(ctx context.Context, lockID uint32) error {
 // "client: GetSchema: decode GetSchemaReply:" error, distinguishable from
 // RPC-level errors. Inspection:
 //
-//	go test ./netconf/client/... -run TestClient_GetSchema -v
+//	go test ./... -run TestClient_GetSchema -v
 func (c *Client) GetSchema(ctx context.Context, req *monitoring.GetSchemaRequest) ([]byte, error) {
 	reply, err := c.Do(ctx, req)
 	if err != nil {
@@ -574,7 +590,7 @@ func (c *Client) GetSchema(ctx context.Context, req *monitoring.GetSchemaRequest
 //
 // # Observability Impact
 //
-// Errors include "client: GetData:" prefix per P010. A server-side
+// Errors include "client: GetData:" prefix. A server-side
 // <rpc-error> propagates as netconf.RPCError via errors.As. A reply body
 // decode failure surfaces as a wrapped "decode DataReply" error.
 func (c *Client) GetData(ctx context.Context, req nmda.GetData) (*netconf.DataReply, error) {
@@ -594,7 +610,7 @@ func (c *Client) GetData(ctx context.Context, req nmda.GetData) (*netconf.DataRe
 //
 // # Observability Impact
 //
-// Errors include "client: EditData:" prefix per P010.
+// Errors include "client: EditData:" prefix.
 func (c *Client) EditData(ctx context.Context, req nmda.EditData) error {
 	reply, err := c.Do(ctx, &req)
 	if err != nil {
@@ -645,7 +661,7 @@ func (c *Client) EstablishSubscription(ctx context.Context, req subscriptions.Es
 //
 // # Observability Impact
 //
-// Errors include "client: ModifySubscription:" prefix per P010.
+// Errors include "client: ModifySubscription:" prefix.
 func (c *Client) ModifySubscription(ctx context.Context, req subscriptions.ModifySubscriptionRequest) error {
 	reply, err := c.Do(ctx, &req)
 	if err != nil {
@@ -662,7 +678,7 @@ func (c *Client) ModifySubscription(ctx context.Context, req subscriptions.Modif
 //
 // # Observability Impact
 //
-// Errors include "client: DeleteSubscription:" prefix per P010.
+// Errors include "client: DeleteSubscription:" prefix.
 func (c *Client) DeleteSubscription(ctx context.Context, id subscriptions.SubscriptionID) error {
 	reply, err := c.Do(ctx, &subscriptions.DeleteSubscription{ID: id})
 	if err != nil {
@@ -683,7 +699,7 @@ func (c *Client) DeleteSubscription(ctx context.Context, id subscriptions.Subscr
 //
 // # Observability Impact
 //
-// Errors include "client: KillSubscription:" prefix per P010.
+// Errors include "client: KillSubscription:" prefix.
 func (c *Client) KillSubscription(ctx context.Context, id subscriptions.SubscriptionID, reason string) error {
 	reply, err := c.Do(ctx, &subscriptions.KillSubscription{ID: id, Reason: reason})
 	if err != nil {
@@ -777,7 +793,7 @@ func Dial(ctx context.Context, addr string, config *gossh.ClientConfig, localCap
 //   - "client: DialTLS <addr>: NETCONF hello: …" — hello exchange failed after
 //     TLS succeeded
 //
-// Inspection: `go test ./netconf/client/... -v -run TestClient_TLSLoopback`
+// Inspection: `go test ./... -v -run TestClient_TLSLoopback`
 // prints the full TLS→hello→GetConfig stack.
 func DialTLS(ctx context.Context, addr string, config *cryptotls.Config, localCaps netconf.CapabilitySet) (*Client, error) {
 	if err := ctx.Err(); err != nil {

@@ -18,7 +18,7 @@
 //
 // Both are YANG module namespace URIs, NOT NETCONF capability URNs of the form
 // "urn:ietf:params:netconf:capability:…". Do not pass them to netconf.ValidateURN
-// (per P020).
+// .
 //
 // # Dynamic Subscriptions (RFC 8639 §2.4)
 //
@@ -30,14 +30,14 @@
 // [SubscriptionModified], [SubscriptionTerminated], [SubscriptionKilled])
 // are delivered as RFC 5277 <notification> messages. Callers unmarshal the
 // notification body into the appropriate type by wrapping it in a synthetic
-// root element per P012.
+// root element before unmarshaling.
 //
 // # Observability Impact
 //
 // Types in this package are pure encoding/decoding structs with no runtime state.
 // Failure visibility is through XML marshal/unmarshal errors and go test output.
 //
-//   - go test ./netconf/subscriptions/... -v — per-struct round-trip pass/fail
+//   - go test ./... -v — per-struct round-trip pass/fail
 //     with actual marshaled XML printed in failure messages via t.Logf.
 //   - The SubscriptionsNS constant is testable via:
 //     assert.Equal(t, subscriptions.SubscriptionsNS, "urn:ietf:params:xml:ns:yang:ietf-subscriptions")
@@ -55,7 +55,7 @@ const SubscriptionsNS = "urn:ietf:params:xml:ns:yang:ietf-subscriptions"
 //
 // Note: this is a YANG module namespace URI, not a
 // "urn:ietf:params:netconf:capability:…" URN. Do not pass it to
-// netconf.ValidateURN (per P020).
+// netconf.ValidateURN .
 const CapabilityURI = "urn:ietf:params:xml:ns:yang:ietf-subscriptions"
 
 // NetconfSubscriptionsNS is the XML namespace for the ietf-netconf-subscriptions
@@ -68,7 +68,7 @@ const NetconfSubscriptionsNS = "urn:ietf:params:xml:ns:yang:ietf-netconf-subscri
 //
 // Note: this is a YANG module namespace URI, not a
 // "urn:ietf:params:netconf:capability:…" URN. Do not pass it to
-// netconf.ValidateURN (per P020).
+// netconf.ValidateURN .
 const CapabilityURINetconf = "urn:ietf:params:xml:ns:yang:ietf-netconf-subscriptions"
 
 // SubscriptionID is a uint32 identifying a specific subscription instance.
@@ -79,7 +79,7 @@ type SubscriptionID = uint32
 // SubtreeFilterContent is a helper type that wraps raw inner XML bytes in a
 // <subtree-filter> element. encoding/xml requires a struct field to emit a
 // named wrapper element around innerxml content; a bare []byte with a named
-// tag would be escaped as text rather than emitted as raw XML (per P003).
+// tag would be escaped as text rather than emitted as raw XML.
 type SubtreeFilterContent struct {
 	Content []byte `xml:",innerxml"`
 }
@@ -88,7 +88,7 @@ type SubtreeFilterContent struct {
 // (RFC 8639 §2.3). Exactly one of SubtreeFilter or XPathFilter should be set.
 //
 //   - SubtreeFilter: wraps raw inner XML bytes in a <subtree-filter> element;
-//     content is emitted verbatim via innerxml (per P003).
+//     content is emitted verbatim via innerxml.
 //   - XPathFilter: XPath 1.0 expression selecting the event records of interest.
 type FilterSpec struct {
 	SubtreeFilter *SubtreeFilterContent `xml:"subtree-filter,omitempty"`
