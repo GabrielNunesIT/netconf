@@ -193,7 +193,21 @@ func (s *Server) Serve(ctx context.Context, sess *netconf.Session) error {
 			rpc.Body, err = marshalOpElement(decoder, opStart)
 			_ = rc.Close()
 			if err != nil {
-				// Malformed body — skip without a reply (no meaningful message).
+				// Body is malformed but we have a valid message-id; send an
+				// rpc-error so the client knows the RPC was not processed.
+				rpcErr := netconf.RPCError{
+					Type:     "rpc",
+					Tag:      "bad-element",
+					Severity: "error",
+					Message:  fmt.Sprintf("operation element <%s> could not be parsed", opName),
+				}
+				reply, buildErr := buildErrorReply(msgID, rpcErr)
+				if buildErr != nil {
+					return fmt.Errorf("server: Serve: build malformed-body reply (message-id=%s, op=%s): %w", msgID, opName, buildErr)
+				}
+				if sendErr := sendReply(sess, reply); sendErr != nil {
+					return fmt.Errorf("server: Serve: send malformed-body reply (message-id=%s, op=%s): %w", msgID, opName, sendErr)
+				}
 				continue
 			}
 			body, handlerErr = h.Handle(ctx, sess, rpc)

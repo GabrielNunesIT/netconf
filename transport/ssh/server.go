@@ -86,6 +86,8 @@ type Listener struct {
 	transportCh chan *ServerTransport
 	// errCh carries the first fatal Accept-level error (e.g., net.Listener closed).
 	errCh chan error
+	// done is closed by acceptLoop when it exits, unblocking all Accept callers.
+	done chan struct{}
 }
 
 // NewListener wraps netListener with sshConfig and starts the accept loop in
@@ -97,6 +99,7 @@ func NewListener(netListener net.Listener, config *gossh.ServerConfig) *Listener
 		sshConfig:   config,
 		transportCh: make(chan *ServerTransport, 8),
 		errCh:       make(chan error, 1),
+		done:        make(chan struct{}),
 	}
 	go l.acceptLoop()
 	return l
@@ -104,7 +107,8 @@ func NewListener(netListener net.Listener, config *gossh.ServerConfig) *Listener
 
 // Accept blocks until a client opens a "netconf" subsystem channel and returns
 // the resulting ServerTransport. It returns an error if the Listener has been
-// closed or a fatal network error occurred.
+// closed or a fatal network error occurred. All callers unblock once the
+// Listener is closed.
 func (l *Listener) Accept() (*ServerTransport, error) {
 	select {
 	case t, ok := <-l.transportCh:
@@ -114,6 +118,8 @@ func (l *Listener) Accept() (*ServerTransport, error) {
 		return t, nil
 	case err := <-l.errCh:
 		return nil, fmt.Errorf("ssh server: accept: %w", err)
+	case <-l.done:
+		return nil, errors.New("ssh server: listener closed")
 	}
 }
 
@@ -125,6 +131,7 @@ func (l *Listener) Close() error {
 // acceptLoop accepts TCP connections and dispatches each to handleConn in its
 // own goroutine. It exits when the net.Listener is closed.
 func (l *Listener) acceptLoop() {
+	defer close(l.done)
 	for {
 		conn, err := l.netListener.Accept()
 		if err != nil {
@@ -170,31 +177,41 @@ func (l *Listener) handleConn(conn net.Conn) {
 }
 
 // handleSession processes SSH channel requests on a session channel. It
-// accepts "subsystem" requests for "netconf" and rejects everything else.
+// accepts the first "subsystem" request for "netconf" and rejects everything
+// else. After accepting, remaining requests are drained in a background
+// goroutine so the SSH multiplexer does not stall; the channel is then owned
+// exclusively by the delivered ServerTransport.
 func (l *Listener) handleSession(channel gossh.Channel, requests <-chan *gossh.Request) {
-	netconfAccepted := false
 	for req := range requests {
 		switch req.Type {
 		case "subsystem":
-			// The payload is a uint32 length-prefixed string.
 			name := parseSubsystemName(req.Payload)
-			if name == "netconf" && !netconfAccepted {
+			if name == "netconf" {
 				if req.WantReply {
 					_ = req.Reply(true, nil)
 				}
-				netconfAccepted = true
-				// Deliver the transport to Accept().
+				// Drain remaining requests so the SSH multiplexer does not stall.
+				go func() {
+					for r := range requests {
+						if r.WantReply {
+							_ = r.Reply(false, nil)
+						}
+					}
+				}()
+				// Deliver the transport to Accept(). The channel is now owned
+				// by the transport; handleSession must not touch it after this.
 				l.transportCh <- &ServerTransport{
 					framer:  transport.NewFramer(channel),
 					channel: channel,
 				}
-			} else {
-				// Reject non-netconf subsystems.
-				if req.WantReply {
-					_ = req.Reply(false, nil)
-				}
-				_ = channel.Close()
+				return
 			}
+			// Non-netconf subsystem: reject and close the channel.
+			if req.WantReply {
+				_ = req.Reply(false, nil)
+			}
+			_ = channel.Close()
+			return
 		default:
 			// Reject unrecognised requests.
 			if req.WantReply {
@@ -306,5 +323,6 @@ func callHomeHandshake(conn net.Conn, config *gossh.ServerConfig) (*ServerTransp
 	}
 
 	// chans channel closed without a session channel.
+	_ = sshConn.Close()
 	return nil, errors.New("ssh server: call home: connection closed before session channel")
 }

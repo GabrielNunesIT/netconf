@@ -322,8 +322,12 @@ func (w *eomWriter) Write(p []byte) (int, error) {
 }
 
 // Close frames the accumulated body with the EOM delimiter, flushes it, and
-// returns the buffer to the pool.
+// returns the buffer to the pool. Close is idempotent: calling it more than
+// once returns nil without writing anything.
 func (w *eomWriter) Close() error {
+	if w.buf == nil {
+		return nil
+	}
 	w.buf.WriteString(eomDelimiter)
 	_, err := w.w.Write(w.buf.Bytes())
 	putBuf(w.buf)
@@ -351,8 +355,12 @@ func (w *chunkedWriter) Write(p []byte) (int, error) {
 }
 
 // Close encodes the buffered body as chunked framing, flushes, and returns the
-// buffer to the pool.
+// buffer to the pool. Close is idempotent: calling it more than once returns
+// nil without writing anything.
 func (w *chunkedWriter) Close() error {
+	if w.buf == nil {
+		return nil
+	}
 	var out strings.Builder
 
 	if w.buf.Len() > 0 {

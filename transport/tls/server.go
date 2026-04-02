@@ -96,6 +96,8 @@ type Listener struct {
 	transportCh chan *ServerTransport
 	// errCh carries the first fatal Accept-level error (e.g., net.Listener closed).
 	errCh chan error
+	// done is closed by acceptLoop when it exits, unblocking all Accept callers.
+	done chan struct{}
 }
 
 // NewListener wraps netListener with tlsConfig and starts the accept loop in
@@ -107,6 +109,7 @@ func NewListener(netListener net.Listener, config *cryptotls.Config) *Listener {
 		tlsConfig:   config,
 		transportCh: make(chan *ServerTransport, 8),
 		errCh:       make(chan error, 1),
+		done:        make(chan struct{}),
 	}
 	go l.acceptLoop()
 	return l
@@ -114,7 +117,8 @@ func NewListener(netListener net.Listener, config *cryptotls.Config) *Listener {
 
 // Accept blocks until a client completes the TLS handshake and returns the
 // resulting ServerTransport. It returns an error if the Listener has been
-// closed or a fatal network error occurred.
+// closed or a fatal network error occurred. All callers unblock once the
+// Listener is closed.
 func (l *Listener) Accept() (*ServerTransport, error) {
 	select {
 	case t, ok := <-l.transportCh:
@@ -124,6 +128,8 @@ func (l *Listener) Accept() (*ServerTransport, error) {
 		return t, nil
 	case err := <-l.errCh:
 		return nil, fmt.Errorf("tls server: accept: %w", err)
+	case <-l.done:
+		return nil, errors.New("tls server: listener closed")
 	}
 }
 
@@ -135,6 +141,7 @@ func (l *Listener) Close() error {
 // acceptLoop accepts TCP connections and dispatches each to handleConn in its
 // own goroutine. It exits when the net.Listener is closed.
 func (l *Listener) acceptLoop() {
+	defer close(l.done)
 	for {
 		conn, err := l.netListener.Accept()
 		if err != nil {
