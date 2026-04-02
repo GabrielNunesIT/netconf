@@ -181,9 +181,8 @@ func TestDisconnect_NotConnected(t *testing.T) {
 
 // ── TestConnect_NoSpuriousWarning ─────────────────────────────────────────────
 
-// TestConnect_NoSpuriousWarning verifies that connecting without --insecure does
-// NOT print a host-key-verification warning. The warning is only shown when the
-// user explicitly passes --insecure, to indicate they are opting out of security.
+// TestConnect_NoSpuriousWarning verifies that connecting without --insecure still
+// prints a MITM warning, because host-key verification is not yet implemented.
 func TestConnect_NoSpuriousWarning(t *testing.T) {
 	caps := netconf.NewCapabilitySet([]string{netconf.BaseCap10, netconf.BaseCap11})
 	addr, cleanup := startLoopbackSSHServer(t, caps, 605)
@@ -206,9 +205,9 @@ func TestConnect_NoSpuriousWarning(t *testing.T) {
 	err = repl.ExportedHandleConnect(args, nil, sess, &out, &errOut)
 	require.NoError(t, err)
 
-	// No warning should appear on stderr.
-	assert.NotContains(t, errOut.String(), "warning",
-		"connecting without --insecure must not print a warning; stderr was: %q", errOut.String())
+	// The MITM warning must appear on stderr even without --insecure.
+	assert.Contains(t, errOut.String(), "warning: host key verification is not implemented",
+		"connecting without --insecure must warn about MITM; stderr was: %q", errOut.String())
 	assert.True(t, sess.Connected(), "session must be connected")
 
 	// Cleanup.

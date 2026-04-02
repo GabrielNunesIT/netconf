@@ -99,8 +99,7 @@ func handleConnect(args []string, rl *readline.Instance, sess *Session, outW, er
 		fmt.Fprintf(errW, "warning: --insecure disables host key verification\n")
 		hostKeyCallback = gossh.InsecureIgnoreHostKey() //nolint:gosec // intentional for dev use
 	} else {
-		// Known-hosts support is deferred. Use InsecureIgnoreHostKey silently
-		// to avoid spamming users who do not pass --insecure.
+		fmt.Fprintf(errW, "warning: host key verification is not implemented; connection is vulnerable to MITM attacks\n")
 		hostKeyCallback = gossh.InsecureIgnoreHostKey() //nolint:gosec
 	}
 
