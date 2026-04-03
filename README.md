@@ -35,19 +35,31 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 
 	netconf "github.com/GabrielNunesIT/netconf"
 	"github.com/GabrielNunesIT/netconf/client"
 	gossh "golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 func main() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		log.Fatal(err)
+	}
+	hostKeyCallback, err := knownhosts.New(filepath.Join(home, ".ssh", "known_hosts"))
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	sshCfg := &gossh.ClientConfig{
 		User: "admin",
 		Auth: []gossh.AuthMethod{
 			gossh.Password("secret"),
 		},
-		HostKeyCallback: gossh.InsecureIgnoreHostKey(),
+		HostKeyCallback: hostKeyCallback,
 	}
 
 	ctx := context.Background()
@@ -94,4 +106,4 @@ go vet ./...
 
 ## License
 
-MIT — see [LICENSE](LICENSE) (placeholder; add LICENSE file before publishing).
+MIT — see [LICENSE](LICENSE).

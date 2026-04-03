@@ -3,6 +3,7 @@ package netconf_test
 import (
 	"encoding/xml"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 
@@ -259,6 +260,34 @@ func TestSession_ServerRejects_MissingBase10(t *testing.T) {
 	require.Error(t, err, "ServerSession must fail when client hello lacks base:1.0")
 	assert.Contains(t, err.Error(), netconf.BaseCap10,
 		"error message must name the missing capability")
+
+	<-done
+}
+
+func TestSession_ClientRejects_OversizedHello(t *testing.T) {
+	t.Parallel()
+
+	clientT, serverT := transport.NewLoopback()
+	defer clientT.Close()
+	defer serverT.Close()
+
+	// Build a valid hello whose payload exceeds the session hello limit (4 MiB).
+	bigCap := "urn:test:" + strings.Repeat("x", 5*1024*1024)
+	h := netconf.Hello{
+		Capabilities: []string{netconf.BaseCap10, bigCap},
+		SessionID:    1,
+	}
+	raw, err := xml.Marshal(&h)
+	require.NoError(t, err)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- transport.WriteMsg(serverT, raw)
+	}()
+
+	_, err = netconf.ClientSession(clientT, caps(netconf.BaseCap10))
+	require.Error(t, err, "ClientSession must reject oversized hello")
+	assert.Contains(t, err.Error(), "hello exceeds maximum size")
 
 	<-done
 }

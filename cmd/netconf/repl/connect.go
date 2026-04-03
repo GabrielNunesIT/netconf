@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 	netconf "github.com/GabrielNunesIT/netconf"
 	"github.com/GabrielNunesIT/netconf/client"
 	gossh "golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 
 	"github.com/chzyer/readline"
 )
@@ -26,6 +28,7 @@ import (
 //	--user <user>          SSH username (required)
 //	--password <pw>        SSH password (prompted securely if omitted)
 //	--key <path>           path to PEM private key file (alternative to password)
+//	--known-hosts <path>   OpenSSH known_hosts file (default: ~/.ssh/known_hosts)
 //	--insecure             skip host key verification (dev use only)
 func handleConnect(args []string, rl *readline.Instance, sess *Session, outW, errW io.Writer) error {
 	if sess.Connected() {
@@ -41,6 +44,7 @@ func handleConnect(args []string, rl *readline.Instance, sess *Session, outW, er
 	user := fs.String("user", "", "SSH username (required)")
 	password := fs.String("password", "", "SSH password (prompted if omitted)")
 	keyPath := fs.String("key", "", "path to PEM private key file")
+	knownHostsPath := fs.String("known-hosts", "~/.ssh/known_hosts", "OpenSSH known_hosts file")
 	insecure := fs.Bool("insecure", false, "skip host key verification (dev use)")
 
 	if err := fs.Parse(args); err != nil {
@@ -94,14 +98,11 @@ func handleConnect(args []string, rl *readline.Instance, sess *Session, outW, er
 	}
 
 	// Host key callback.
-	var hostKeyCallback gossh.HostKeyCallback
-	if *insecure {
-		fmt.Fprintf(errW, "warning: --insecure disables host key verification\n")
-		hostKeyCallback = gossh.InsecureIgnoreHostKey() //nolint:gosec // intentional for dev use
-	} else {
-		// Known-hosts support is deferred. Use InsecureIgnoreHostKey silently
-		// to avoid spamming users who do not pass --insecure.
-		hostKeyCallback = gossh.InsecureIgnoreHostKey() //nolint:gosec
+	hostKeyCallback, err := newHostKeyCallback(*insecure, *knownHostsPath, errW)
+	if err != nil {
+		fmt.Fprintf(errW, "connect: host key verification: %v\n", err)
+		fmt.Fprintf(errW, "connect: hint: pass --known-hosts <path> or --insecure for dev-only use\n")
+		return nil
 	}
 
 	sshConfig := &gossh.ClientConfig{
@@ -134,6 +135,41 @@ func handleConnect(args []string, rl *readline.Instance, sess *Session, outW, er
 	fmt.Fprintf(outW, "connected to %s (session-id: %d)\n", addr, cli.SessionID())
 
 	return nil
+}
+
+// newHostKeyCallback returns a host-key verification callback. In secure mode
+// it loads OpenSSH known_hosts and rejects unknown/mismatched keys.
+func newHostKeyCallback(insecure bool, knownHostsPath string, errW io.Writer) (gossh.HostKeyCallback, error) {
+	if insecure {
+		fmt.Fprintf(errW, "warning: --insecure disables host key verification\n")
+		return gossh.InsecureIgnoreHostKey(), nil //nolint:gosec // intentional opt-out for dev use
+	}
+	resolvedPath, err := resolveKnownHostsPath(knownHostsPath)
+	if err != nil {
+		return nil, err
+	}
+	cb, err := knownhosts.New(resolvedPath)
+	if err != nil {
+		return nil, fmt.Errorf("load %q: %w", resolvedPath, err)
+	}
+	return cb, nil
+}
+
+func resolveKnownHostsPath(path string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("known_hosts path is empty")
+	}
+	if path == "~" || strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("resolve home directory: %w", err)
+		}
+		if path == "~" {
+			return home, nil
+		}
+		return filepath.Join(home, path[2:]), nil
+	}
+	return path, nil
 }
 
 // handleDisconnect closes the current NETCONF session.

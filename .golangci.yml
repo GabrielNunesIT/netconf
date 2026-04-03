@@ -138,39 +138,39 @@ linters:
       # directly to the underlying io.Pipe / net.Listener / SSH channel /
       # bytes.Buffer. Wrapping these errors adds no diagnostic value — the
       # call site is one line and the underlying error is already descriptive.
-      - path: "netconf/transport/loopback\\.go"
+      - path: "transport/loopback\\.go"
         linters:
           - wrapcheck
-      - path: "netconf/transport/framer\\.go"
+      - path: "transport/framer\\.go"
         linters:
           - wrapcheck
-      - path: "netconf/transport/ssh/client\\.go"
+      - path: "transport/ssh/client\\.go"
         linters:
           - wrapcheck
-      - path: "netconf/transport/ssh/server\\.go"
+      - path: "transport/ssh/server\\.go"
         linters:
           - wrapcheck
         text: "error returned from interface method"
-      - path: "netconf/transport/tls/server\\.go"
+      - path: "transport/tls/server\\.go"
         linters:
           - wrapcheck
         text: "error returned from interface method"
 
       # wrapcheck: Session.Close/Send/Recv are thin one-line delegations to
       # the transport layer. The transport errors are already context-rich.
-      - path: "netconf/session\\.go"
+      - path: "session\\.go"
         linters:
           - wrapcheck
 
       # wrapcheck: server.go sendReply/buildErrorReply — xml.Marshal and
       # sess.Send errors are wrapped with context at the call sites in ServeRPC.
-      - path: "netconf/server/server\\.go"
+      - path: "server/server\\.go"
         linters:
           - wrapcheck
 
       # wrapcheck: framer_test.go readOnlyRW is a test helper that forwards
       # bytes.Reader.Read — no wrapping needed in a test shim.
-      - path: "netconf/transport/framer_test\\.go"
+      - path: "transport/framer_test\\.go"
         linters:
           - wrapcheck
 
@@ -182,14 +182,14 @@ linters:
 
       # wrapcheck: client.go — ctx.Err() and sess.Close() in Close/Do are
       # propagated as-is intentionally; callers use errors.Is(ctx.Done()).
-      - path: "netconf/client/client\\.go"
+      - path: "client/client\\.go"
         linters:
           - wrapcheck
 
       # revive package-comments: server.go files use a file-level doc comment
       # (explains the file's role in the package) rather than a package-level
       # comment. The package doc lives in the client/client.go or a doc.go.
-      - path: "netconf/transport/(ssh|tls)/server\\.go"
+      - path: "transport/(ssh|tls)/server\\.go"
         linters:
           - revive
         text: "package-comments"
@@ -197,16 +197,16 @@ linters:
       # paralleltest: integration tests that share a loopback transport, SSH
       # server goroutine, or TLS listener cannot run in parallel without
       # additional synchronisation — they are intentionally sequential.
-      - path: "netconf/conformance/conformance_test\\.go"
+      - path: "conformance/conformance_test\\.go"
         linters:
           - paralleltest
-      - path: "netconf/transport/ssh/ssh_test\\.go"
+      - path: "transport/ssh/ssh_test\\.go"
         linters:
           - paralleltest
-      - path: "netconf/transport/ssh/callhome_test\\.go"
+      - path: "transport/ssh/callhome_test\\.go"
         linters:
           - paralleltest
-      - path: "netconf/client/(client|callhome|nmda|subscriptions|notification|yangpush)_test\\.go"
+      - path: "client/(client|callhome|nmda|subscriptions|notification|yangpush)_test\\.go"
         linters:
           - paralleltest
       - path: "cmd/netconf/repl/(operations|connect)_test\\.go"

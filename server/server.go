@@ -31,7 +31,9 @@ package server
 import (
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
+	"io"
 
 	netconf "github.com/GabrielNunesIT/netconf"
 )
@@ -105,10 +107,8 @@ func (s *Server) RegisterHandler(opName string, h Handler) {
 // implementations continue to work unchanged — Serve materialises rpc.Body
 // for them.
 //
-// Context cancellation: cancelling ctx signals handlers to stop new work, but
-// does NOT by itself unblock the blocking sess.RecvStream call. To stop Serve
-// promptly, close the underlying transport (e.g. sess.Close()) in addition to
-// cancelling ctx.
+// Context cancellation: cancelling ctx causes Serve to close the session
+// transport to unblock any in-flight receive and return promptly.
 //
 // Panic handling: if a Handler or StreamHandler panics, the panic propagates
 // to the caller of Serve. Use a recover wrapper around Serve if your handlers
@@ -126,8 +126,11 @@ func (s *Server) RegisterHandler(opName string, h Handler) {
 // Serve is single-threaded: one handler runs at a time per session.
 func (s *Server) Serve(ctx context.Context, sess *netconf.Session) error {
 	for {
-		rc, err := sess.RecvStream()
+		rc, err := recvStreamWithContext(ctx, sess)
 		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return fmt.Errorf("server: Serve: context: %w", err)
+			}
 			return fmt.Errorf("server: Serve: recv: %w", err)
 		}
 
@@ -235,6 +238,31 @@ func (s *Server) Serve(ctx context.Context, sess *netconf.Session) error {
 		if sendErr := sendReply(sess, reply); sendErr != nil {
 			return fmt.Errorf("server: Serve: send reply (message-id=%s, op=%s): %w", msgID, opName, sendErr)
 		}
+	}
+}
+
+func recvStreamWithContext(ctx context.Context, sess *netconf.Session) (io.ReadCloser, error) {
+	type recvResult struct {
+		rc  io.ReadCloser
+		err error
+	}
+
+	resCh := make(chan recvResult, 1)
+	go func() {
+		rc, err := sess.RecvStream()
+		resCh <- recvResult{rc: rc, err: err}
+	}()
+
+	select {
+	case res := <-resCh:
+		return res.rc, res.err
+	case <-ctx.Done():
+		_ = sess.Close()
+		res := <-resCh
+		if res.rc != nil {
+			_ = res.rc.Close()
+		}
+		return nil, ctx.Err()
 	}
 }
 

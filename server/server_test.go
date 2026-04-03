@@ -558,15 +558,7 @@ func TestServer_WithClient_RPCError(t *testing.T) {
 }
 
 // TestServer_ContextCancel proves that cancelling the context passed to
-// server.Serve — followed by closing the underlying transport — causes Serve
-// to return.  The return value may be the context error or a transport error,
-// depending on timing — either is acceptable.
-//
-// Note: Serve's inner sess.Recv() call is synchronous and cannot select on
-// ctx.Done() directly.  Closing the transport (via cli.Close()) is the
-// standard way to unblock a blocking Recv, consistent with real-world
-// graceful-shutdown patterns.  Context cancellation signals "stop taking new
-// work" while transport close actually unblocks the I/O.
+// server.Serve causes Serve to return promptly.
 func TestServer_ContextCancel(t *testing.T) {
 	t.Parallel()
 	cli, serverSess := newClientServerPair(t)
@@ -580,19 +572,19 @@ func TestServer_ContextCancel(t *testing.T) {
 		serveDone <- srv.Serve(ctx, serverSess)
 	}()
 
-	// Cancel the context, then close the client to unblock sess.Recv on the
-	// server side (loopback io.Pipe is synchronous; closing either end
-	// returns io.ErrClosedPipe / io.EOF to the other).
+	// Cancel the context. Serve should close the session transport internally
+	// to unblock any in-flight receive.
 	cancel()
-	_ = cli.Close()
 
 	select {
-	case <-serveDone:
-		// Serve returned — either context.Canceled, io.EOF, or a transport
-		// error.  All are acceptable: what matters is that Serve did not hang.
+	case err := <-serveDone:
+		require.Error(t, err)
+		assert.ErrorIs(t, err, context.Canceled)
 	case <-time.After(2 * time.Second):
-		t.Fatal("Serve did not return after context cancellation and transport close")
+		t.Fatal("Serve did not return after context cancellation")
 	}
+
+	_ = cli.Close()
 }
 
 // ── StreamHandler tests ───────────────────────────────────────────────────────

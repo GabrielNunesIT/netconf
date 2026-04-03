@@ -19,6 +19,7 @@ var Completer = readline.NewPrefixCompleter(
 		readline.PcItem("--user"),
 		readline.PcItem("--password"),
 		readline.PcItem("--key"),
+		readline.PcItem("--known-hosts"),
 		readline.PcItem("--insecure"),
 	),
 	readline.PcItem("disconnect"),

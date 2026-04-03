@@ -784,6 +784,20 @@ func TestClient_Notifications_ChannelExists(t *testing.T) {
 	_ = ch
 }
 
+func TestClient_NotificationDropCounter(t *testing.T) {
+	c, serverT := newTestPair(t)
+
+	for range 96 {
+		notifXML, err := xml.Marshal(&netconf.Notification{EventTime: "2024-01-15T10:30:00Z"})
+		require.NoError(t, err, "marshal notification")
+		require.NoError(t, transport.WriteMsg(serverT, notifXML), "write notification")
+	}
+
+	require.Eventually(t, func() bool {
+		return c.DroppedNotifications() > 0
+	}, 2*time.Second, 10*time.Millisecond, "client must report dropped notifications when channel is full")
+}
+
 // TestClient_Subscribe_Success verifies that Subscribe sends a create-subscription
 // RPC, receives an <ok/> reply, and returns the same channel as Notifications().
 func TestClient_Subscribe_Success(t *testing.T) {

@@ -19,6 +19,9 @@ const (
 	FramingEOM FramingMode = iota
 	// FramingChunked is base:1.1 chunked framing (RFC 6242 §4.2).
 	FramingChunked
+
+	// maxHelloMessageSize bounds the decoded NETCONF hello payload size.
+	maxHelloMessageSize = 4 * 1024 * 1024 // 4 MiB
 )
 
 // Session represents an established NETCONF session. It holds negotiated state
@@ -220,9 +223,13 @@ func recvHello(trp transport.Transport) (*Hello, error) {
 	}
 	defer func() { _ = r.Close() }()
 
-	data, err := io.ReadAll(r)
+	limited := &io.LimitedReader{R: r, N: maxHelloMessageSize + 1}
+	data, err := io.ReadAll(limited)
 	if err != nil {
 		return nil, fmt.Errorf("read: %w", err)
+	}
+	if int64(len(data)) > maxHelloMessageSize {
+		return nil, fmt.Errorf("hello exceeds maximum size of %d bytes", maxHelloMessageSize)
 	}
 
 	var h Hello

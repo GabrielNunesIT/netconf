@@ -103,6 +103,18 @@ func TestEOM_MsgReader_UnexpectedEOF(t *testing.T) {
 		"error should mention EOF")
 }
 
+func TestEOM_MsgReader_OversizedMessage_Error(t *testing.T) {
+	t.Parallel()
+
+	// transport/framer.go enforces a 16 MiB EOM read limit.
+	oversized := strings.Repeat("x", 16*1024*1024+1)
+	framer := transport.NewFramer(newReadOnlyRW([]byte(oversized + "]]>]]>")))
+
+	_, err := framer.MsgReader()
+	require.Error(t, err, "oversized EOM message must return an error")
+	assert.Contains(t, err.Error(), "exceeds maximum size")
+}
+
 // ── EOM mode: round-trip ──────────────────────────────────────────────────────
 
 func TestEOM_RoundTrip_Single(t *testing.T) {

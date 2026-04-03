@@ -16,6 +16,10 @@ import (
 // eomDelimiter is the end-of-message sentinel for base:1.0 framing.
 const eomDelimiter = "]]>]]>"
 
+// maxEOMMessageSize is the maximum accepted NETCONF message size in EOM mode.
+// This bounds memory use when reading until the EOM delimiter.
+const maxEOMMessageSize = 16 * 1024 * 1024 // 16 MiB
+
 // maxChunkSize is the maximum legal chunk data size per RFC 6242 §4.2:
 // chunk-size = 1*DIGIT, where the value fits in uint32.
 const maxChunkSize = 4294967295 // max uint32
@@ -127,6 +131,11 @@ func (f *Framer) eomReader() (io.ReadCloser, error) {
 			}
 			return nil, fmt.Errorf("eom: read: %w", err)
 		}
+
+		if buf.Len()+1 > maxEOMMessageSize {
+			putBuf(buf)
+			return nil, fmt.Errorf("eom: message exceeds maximum size of %d bytes", maxEOMMessageSize)
+		}
 		buf.WriteByte(b)
 
 		// Check if the tail of buf matches the delimiter.
@@ -205,9 +214,7 @@ func (r *chunkedStreamReader) Read(p []byte) (int, error) {
 
 	// Read up to remaining bytes from the current chunk.
 	toRead := int64(len(p))
-	if toRead > r.remaining {
-		toRead = r.remaining
-	}
+	toRead = min(toRead, r.remaining)
 	n, err := r.br.Read(p[:toRead])
 	r.remaining -= int64(n)
 	return n, err

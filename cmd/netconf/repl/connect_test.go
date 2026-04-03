@@ -6,25 +6,27 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"net"
+	"os"
 	"testing"
 	"time"
 
-	"github.com/GabrielNunesIT/netconf/cmd/netconf/repl"
 	netconf "github.com/GabrielNunesIT/netconf"
 	"github.com/GabrielNunesIT/netconf/client"
+	"github.com/GabrielNunesIT/netconf/cmd/netconf/repl"
 	"github.com/GabrielNunesIT/netconf/server"
 	ncssh "github.com/GabrielNunesIT/netconf/transport/ssh"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	gossh "golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 // ── SSH loopback helpers ──────────────────────────────────────────────────────
 
 // startLoopbackSSHServer starts a minimal NETCONF-over-SSH server on a random
 // loopback port. It accepts any password and serves a single connection.
-// Returns the listening address and a cleanup function.
-func startLoopbackSSHServer(t *testing.T, caps netconf.CapabilitySet, sessionID uint32) (addr string, cleanup func()) {
+// Returns the listening address, host public key, and a cleanup function.
+func startLoopbackSSHServer(t *testing.T, caps netconf.CapabilitySet, sessionID uint32) (addr string, hostKey gossh.PublicKey, cleanup func()) {
 	t.Helper()
 
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -75,7 +77,19 @@ func startLoopbackSSHServer(t *testing.T, caps netconf.CapabilitySet, sessionID 
 		_ = trp.Close()
 	}()
 
-	return nl.Addr().String(), func() { ln.Close() }
+	return nl.Addr().String(), signer.PublicKey(), func() { ln.Close() }
+}
+
+func writeKnownHostsFile(t *testing.T, addr string, hostKey gossh.PublicKey) string {
+	t.Helper()
+
+	content := knownhosts.Line([]string{addr}, hostKey)
+	file, err := os.CreateTemp(t.TempDir(), "known_hosts_*")
+	require.NoError(t, err)
+	_, err = file.WriteString(content)
+	require.NoError(t, err)
+	require.NoError(t, file.Close())
+	return file.Name()
 }
 
 // ── TestConnect_Loopback ──────────────────────────────────────────────────────
@@ -85,8 +99,9 @@ func startLoopbackSSHServer(t *testing.T, caps netconf.CapabilitySet, sessionID 
 func TestConnect_Loopback(t *testing.T) {
 	caps := netconf.NewCapabilitySet([]string{netconf.BaseCap10, netconf.BaseCap11})
 	// Session ID 600 per P021 — new range for M004.
-	addr, cleanup := startLoopbackSSHServer(t, caps, 600)
+	addr, hostKey, cleanup := startLoopbackSSHServer(t, caps, 600)
 	defer cleanup()
+	knownHostsFile := writeKnownHostsFile(t, addr, hostKey)
 
 	host, port, err := net.SplitHostPort(addr)
 	require.NoError(t, err)
@@ -94,13 +109,13 @@ func TestConnect_Loopback(t *testing.T) {
 	sess := &repl.Session{}
 	var out, errOut bytes.Buffer
 
-	// Build connect args: --host --port --user --password --insecure.
+	// Build connect args: --host --port --user --password --known-hosts.
 	args := []string{
 		"--host", host,
 		"--port", port,
 		"--user", "admin",
 		"--password", "secret",
-		"--insecure",
+		"--known-hosts", knownHostsFile,
 	}
 
 	// handleConnect is exported for testing via the repl_test package.
@@ -111,6 +126,7 @@ func TestConnect_Loopback(t *testing.T) {
 	assert.True(t, sess.Connected(), "session must be connected after handleConnect")
 	assert.Contains(t, out.String(), "connected", "stdout must confirm connection")
 	assert.NotEmpty(t, sess.Host(), "session host must be set")
+	assert.NotContains(t, errOut.String(), "warning", "secure mode must not print insecure warning")
 
 	// Disconnect.
 	var out2, errOut2 bytes.Buffer
@@ -186,8 +202,9 @@ func TestDisconnect_NotConnected(t *testing.T) {
 // user explicitly passes --insecure, to indicate they are opting out of security.
 func TestConnect_NoSpuriousWarning(t *testing.T) {
 	caps := netconf.NewCapabilitySet([]string{netconf.BaseCap10, netconf.BaseCap11})
-	addr, cleanup := startLoopbackSSHServer(t, caps, 605)
+	addr, hostKey, cleanup := startLoopbackSSHServer(t, caps, 605)
 	defer cleanup()
+	knownHostsFile := writeKnownHostsFile(t, addr, hostKey)
 
 	host, port, err := net.SplitHostPort(addr)
 	require.NoError(t, err)
@@ -201,6 +218,7 @@ func TestConnect_NoSpuriousWarning(t *testing.T) {
 		"--port", port,
 		"--user", "admin",
 		"--password", "secret",
+		"--known-hosts", knownHostsFile,
 		// no --insecure
 	}
 	err = repl.ExportedHandleConnect(args, nil, sess, &out, &errOut)
@@ -212,6 +230,34 @@ func TestConnect_NoSpuriousWarning(t *testing.T) {
 	assert.True(t, sess.Connected(), "session must be connected")
 
 	// Cleanup.
+	var out2, errOut2 bytes.Buffer
+	_ = repl.ExportedHandleDisconnect(sess, &out2, &errOut2)
+}
+
+// TestConnect_InsecureWarning verifies that explicit --insecure prints a
+// warning while still allowing connection for development scenarios.
+func TestConnect_InsecureWarning(t *testing.T) {
+	caps := netconf.NewCapabilitySet([]string{netconf.BaseCap10, netconf.BaseCap11})
+	addr, _, cleanup := startLoopbackSSHServer(t, caps, 606)
+	defer cleanup()
+
+	host, port, err := net.SplitHostPort(addr)
+	require.NoError(t, err)
+
+	sess := &repl.Session{}
+	var out, errOut bytes.Buffer
+
+	err = repl.ExportedHandleConnect([]string{
+		"--host", host,
+		"--port", port,
+		"--user", "admin",
+		"--password", "secret",
+		"--insecure",
+	}, nil, sess, &out, &errOut)
+	require.NoError(t, err)
+	assert.True(t, sess.Connected(), "session must connect in insecure mode")
+	assert.Contains(t, errOut.String(), "warning: --insecure disables host key verification")
+
 	var out2, errOut2 bytes.Buffer
 	_ = repl.ExportedHandleDisconnect(sess, &out2, &errOut2)
 }

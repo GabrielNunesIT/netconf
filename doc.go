@@ -18,15 +18,23 @@
 //
 //	import (
 //	    "context"
+//	    "os"
+//	    "path/filepath"
 //	    "golang.org/x/crypto/ssh"
+//	    "golang.org/x/crypto/ssh/knownhosts"
 //	    netconf "github.com/GabrielNunesIT/netconf"
 //	    "github.com/GabrielNunesIT/netconf/client"
 //	)
 //
+//	home, err := os.UserHomeDir()
+//	if err != nil { /* handle */ }
+//	hostKeyCallback, err := knownhosts.New(filepath.Join(home, ".ssh", "known_hosts"))
+//	if err != nil { /* handle */ }
+//
 //	cfg := &ssh.ClientConfig{
 //	    User: "admin",
 //	    Auth: []ssh.AuthMethod{ssh.Password("secret")},
-//	    HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+//	    HostKeyCallback: hostKeyCallback,
 //	}
 //	caps := netconf.NewCapabilitySet([]string{netconf.BaseCap10, netconf.BaseCap11})
 //

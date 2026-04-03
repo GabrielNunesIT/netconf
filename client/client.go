@@ -73,7 +73,8 @@ type Client struct {
 	sendMu    sync.Mutex // serialises Session.Send calls
 	closeOnce sync.Once
 
-	notifCh chan *netconf.Notification // buffered channel for RFC 5277 notification events
+	notifCh   chan *netconf.Notification // buffered channel for RFC 5277 notification events
+	notifDrop atomic.Uint64
 }
 
 // NewClient creates a Client around sess and starts the background dispatcher
@@ -154,6 +155,7 @@ func (c *Client) recvLoop() {
 			case c.notifCh <- &notif:
 			default:
 				// Channel full — drop notification to prevent dispatcher stall.
+				c.notifDrop.Add(1)
 			}
 			continue
 		}
@@ -303,9 +305,16 @@ func (c *Client) SessionID() uint32 {
 // It is closed when the dispatcher exits (transport error or Close).
 //
 // Callers should drain the channel promptly — if it fills up, excess
-// notifications are dropped silently to prevent the dispatcher from stalling.
+// notifications are dropped to prevent the dispatcher from stalling.
+// Use DroppedNotifications to inspect the number of dropped events.
 func (c *Client) Notifications() <-chan *netconf.Notification {
 	return c.notifCh
+}
+
+// DroppedNotifications returns the number of notifications dropped because
+// the internal notification channel was full.
+func (c *Client) DroppedNotifications() uint64 {
+	return c.notifDrop.Load()
 }
 
 // Subscribe sends a <create-subscription> RPC (RFC 5277 §2.1.1) and returns the
@@ -733,9 +742,8 @@ func (c *Client) CancelCommit(ctx context.Context, persistID string) error {
 // config carries SSH authentication credentials and timeouts.
 // localCaps declares the capabilities this client advertises in the hello.
 //
-// ctx is checked for cancellation before the dial is started. The SSH dial
-// itself uses config.Timeout for its timeout; ctx is not propagated into the
-// SSH layer (golang.org/x/crypto/ssh.Dial does not accept a context).
+// ctx controls the TCP connect phase through net.Dialer.DialContext.
+// Once connected, SSH handshake proceeds on the established socket.
 //
 // On any error, all partially-opened resources are cleaned up before returning.
 func Dial(ctx context.Context, addr string, config *gossh.ClientConfig, localCaps netconf.CapabilitySet) (*Client, error) {
@@ -743,8 +751,19 @@ func Dial(ctx context.Context, addr string, config *gossh.ClientConfig, localCap
 		return nil, fmt.Errorf("client: Dial %s: context already done: %w", addr, err)
 	}
 
-	trp, err := ncssh.Dial(addr, config)
+	dialer := &net.Dialer{}
+	if config != nil && config.Timeout > 0 {
+		dialer.Timeout = config.Timeout
+	}
+
+	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
+		return nil, fmt.Errorf("client: Dial %s: %w", addr, err)
+	}
+
+	trp, err := ncssh.DialConn(conn, addr, config)
+	if err != nil {
+		_ = conn.Close()
 		return nil, fmt.Errorf("client: Dial %s: %w", addr, err)
 	}
 
@@ -766,9 +785,7 @@ func Dial(ctx context.Context, addr string, config *gossh.ClientConfig, localCap
 // TLS as required by RFC 7589.
 // localCaps declares the capabilities this client advertises in the hello.
 //
-// ctx is checked for cancellation before the dial is started; TLS dialing
-// itself is not context-aware (Go's stdlib crypto/tls.Dial does not accept
-// a context). On any error, all partially-opened resources are cleaned up.
+// ctx controls both the TCP dial and TLS handshake.
 //
 // # Observability Impact
 //
@@ -789,10 +806,18 @@ func DialTLS(ctx context.Context, addr string, config *cryptotls.Config, localCa
 		return nil, fmt.Errorf("client: DialTLS %s: context already done: %w", addr, err)
 	}
 
-	trp, err := nctls.Dial(addr, config)
+	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", addr)
 	if err != nil {
-		return nil, fmt.Errorf("client: DialTLS %s: %w", addr, err)
+		return nil, fmt.Errorf("client: DialTLS %s: dial: %w", addr, err)
 	}
+
+	tlsConn := cryptotls.Client(conn, config)
+	if err := tlsConn.HandshakeContext(ctx); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("client: DialTLS %s: handshake: %w", addr, err)
+	}
+
+	trp := nctls.NewClientTransport(tlsConn)
 
 	sess, err := netconf.ClientSession(trp, localCaps)
 	if err != nil {

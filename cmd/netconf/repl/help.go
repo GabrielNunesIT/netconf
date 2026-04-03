@@ -12,7 +12,7 @@ netconf REPL — interactive NETCONF client
 
 CONNECTION
   connect --host <host> [--port <port>] --user <user>
-          [--password <pw>] [--key <path>] [--insecure]
+          [--password <pw>] [--key <path>] [--known-hosts <path>] [--insecure]
                         Connect to a NETCONF device over SSH
   disconnect            Close the current session
   capabilities          Print negotiated capabilities
